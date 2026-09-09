@@ -1,0 +1,1 @@
+export default function Loading() { return <div className="page" role="status" aria-label="Loading workspace"><div className="skeleton h-8 w-48" /><div className="mt-8 space-y-3">{Array.from({ length: 8 }, (_, i) => <div key={i} className="skeleton h-10 w-full" />)}</div><span className="sr-only">Loading workspace…</span></div>; }
