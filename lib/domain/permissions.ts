@@ -25,7 +25,14 @@ export function scopeSnapshot(data: WorkspaceData, actor: Actor): WorkspaceData 
   for (const issue of Object.values(issues)) if (issue.cycleId && !cycles[issue.cycleId]) issue.cycleId = null;
   const teamIds = new Set([...Object.values(projects).map((p) => p.teamId), ...Object.values(issues).map((i) => i.teamId), ...Object.values(cycles).map((c) => c.teamId)]);
   const teams = Object.fromEntries(Object.entries(data.teams).filter(([id]) => actor.access === "admin" || canAccessTeam(data, actor.id, id) || teamIds.has(id)));
-  const users = Object.fromEntries(Object.entries(data.users).map(([id, user]) => [id, { ...user, teamIds: user.teamIds.filter((team) => !!teams[team]) }]));
+  const visibleUserIds = new Set([actor.id]);
+  for (const team of Object.values(teams)) for (const ownerId of team.ownerIds) visibleUserIds.add(ownerId);
+  for (const [id, user] of Object.entries(data.users)) if (user.teamIds.some((team) => !!teams[team])) visibleUserIds.add(id);
+  for (const project of Object.values(projects)) { visibleUserIds.add(project.leadId); for (const id of project.memberIds) visibleUserIds.add(id); }
+  for (const issue of Object.values(issues)) { if (issue.assigneeId) visibleUserIds.add(issue.assigneeId); visibleUserIds.add(issue.reporterId); }
+  for (const comment of Object.values(data.comments)) if (issues[comment.issueId]) visibleUserIds.add(comment.authorId);
+  for (const activity of Object.values(data.activities)) if ((activity.issueId && issues[activity.issueId]) || (activity.projectId && projects[activity.projectId]) || (activity.cycleId && cycles[activity.cycleId])) visibleUserIds.add(activity.actorId);
+  const users = Object.fromEntries(Object.entries(data.users).filter(([id]) => visibleUserIds.has(id)).map(([id, user]) => [id, { ...user, teamIds: user.teamIds.filter((team) => !!teams[team]) }]));
   const savedViews = Object.fromEntries(Object.entries(data.savedViews).filter(([, view]) => {
     if (view.visibility === "personal" && view.ownerId !== actor.id) return false;
     if (view.teamId && !canAccessTeam(data, actor.id, view.teamId)) return false;
