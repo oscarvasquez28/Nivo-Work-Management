@@ -61,7 +61,7 @@ export function assertCommandAccess(data: WorkspaceData, actor: Actor, command: 
     else team(teamId!);
     if (input.teamId) team(input.teamId);
     if (input.cycleId) { requireAccess(!!data.cycles[input.cycleId]); team(data.cycles[input.cycleId].teamId); }
-    if (input.assigneeId) requireAccess(canAccessTeam(data, input.assigneeId, teamId!));
+    if (input.assigneeId) requireAccess(projectId && legacy ? canAccessProject(data, { id: input.assigneeId, access: "member" }, projectId) : canAccessTeam(data, input.assigneeId, teamId!));
   };
   switch (command.type) {
     case "issue.create": patch(command.input); break;
@@ -74,7 +74,7 @@ export function assertCommandAccess(data: WorkspaceData, actor: Actor, command: 
     case "issues.bulk": for (const id of command.ids) { issue(id); patch(command.patch ?? {}, id); } break;
     case "project.create":
       team(command.input.teamId);
-      for (const id of [...command.input.memberIds, command.input.leadId]) requireAccess(canAccessTeam(data, id, command.input.teamId));
+      for (const id of [...command.input.memberIds, command.input.leadId]) requireAccess(legacy ? !!data.users[id] : canAccessTeam(data, id, command.input.teamId));
       break;
     case "project.update": case "project.archive": {
       project(command.id);
@@ -84,8 +84,8 @@ export function assertCommandAccess(data: WorkspaceData, actor: Actor, command: 
         const target = command.patch.teamId ?? existing.teamId;
         if (target !== existing.teamId) requireAccess(canManageTeam(data, actor, target) && canManageTeam(data, actor, existing.teamId));
         team(target);
-        for (const id of command.patch.memberIds ?? []) requireAccess(canAccessTeam(data, id, target));
-        if (command.patch.leadId) requireAccess(canAccessTeam(data, command.patch.leadId, target));
+        for (const id of command.patch.memberIds ?? []) requireAccess(legacy ? !!data.users[id] : canAccessTeam(data, id, target));
+        if (command.patch.leadId) requireAccess(legacy ? !!data.users[command.patch.leadId] : canAccessTeam(data, command.patch.leadId, target));
       }
       break;
     }
