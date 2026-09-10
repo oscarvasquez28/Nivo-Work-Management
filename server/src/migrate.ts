@@ -6,6 +6,7 @@ import { pool, withTransaction } from "./db";
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "../migrations");
 
 await withTransaction(async (client) => {
+  await client.query("SELECT pg_advisory_xact_lock(148087, 1)");
   await client.query("CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
   const applied = new Set((await client.query<{ name: string }>("SELECT name FROM schema_migrations")).rows.map((row) => row.name));
   for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort()) {

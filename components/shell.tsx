@@ -7,6 +7,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { AlertCircle, ArrowUpRight, CheckCircle2, ChevronRight, ChevronsUpDown, CircleUserRound, Group, HardDrive, House, Layers3, ListFilter, Loader2, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Search, Sun, Timer, Users, X } from "lucide-react";
 import { useWorkspace } from "@/stores/workspace";
+import { InstallScreen } from "@/components/auth/install-screen";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { useUI } from "@/components/providers/ui-provider";
 import { Avatar, Button, EmptyState, Skeleton, cn } from "@/components/ui";
@@ -59,7 +60,7 @@ function ShellLoading() {
 }
 
 export function AppShell({ children, panel }: { children: ReactNode; panel?: ReactNode }) {
-  const { data, ready, error, pending, notice, authRequired, retry, useMemory, dismissNotice } = useWorkspace();
+  const { data, ready, error, pending, notice, authRequired, installRequired, retry, useMemory, dismissNotice } = useWorkspace();
   const { sidebarCollapsed, toggleSidebar, mobileOpen, setMobileOpen, openSearch, openCreateIssue } = useUI();
   useEffect(() => {
     if (!notice) return;
@@ -68,6 +69,7 @@ export function AppShell({ children, panel }: { children: ReactNode; panel?: Rea
   }, [notice, dismissNotice]);
   const mobileTrigger = useRef<HTMLButtonElement>(null);
   const errorMessage = error ? String(error) : null;
+  if (installRequired) return <InstallScreen />;
   if (authRequired) return <LoginScreen />;
   return <div className={cn("app-shell", sidebarCollapsed && "sidebar-collapsed")}>
     <a className="skip-link" href="#main-content">Skip to content</a>

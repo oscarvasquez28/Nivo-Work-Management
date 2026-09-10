@@ -24,7 +24,7 @@ describe("deterministic workspace", () => {
     const data = createSeed();
     data.issues["issue-142"].assigneeId = "missing";
     expect(() => validateSnapshot(data)).toThrow();
-    expect(() => validateSnapshot({ ...createSeed(), schemaVersion: 2 })).toThrow(/version/i);
+    expect(() => validateSnapshot({ ...createSeed(), schemaVersion: 99 })).toThrow(/version/i);
   });
 });
 
@@ -118,7 +118,7 @@ describe("selectors and cycles", () => {
     const closed = applyCommand(data, { type: "cycle.close", id: "cycle-24" }, context);
     expect(cycleProgress(closed, "cycle-24")).toEqual(initial);
     const member = Object.values(closed.issues).find((issue) => issue.cycleId === "cycle-24" && issue.status !== "done")!;
-    const changed = applyCommand(closed, { type: "issue.update", id: member.id, patch: { status: "done", estimate: 13 } }, { now, mutationId: "finish-later" });
+    const changed = applyCommand(closed, { type: "issue.update", id: member.id, patch: { status: "done", estimate: 8 } }, { now, mutationId: "finish-later" });
     expect(cycleProgress(changed, "cycle-24")).toEqual(initial);
     expect(() => applyCommand(changed, { type: "issue.update", id: member.id, patch: { cycleId: null } }, { now })).toThrow(/closed/i);
     expect(() => applyCommand(changed, { type: "cycle.update", id: "cycle-24", patch: { endDate: "2026-09-20" } }, { now })).toThrow(/closed/i);

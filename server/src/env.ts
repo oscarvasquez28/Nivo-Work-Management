@@ -4,12 +4,16 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PORT: z.coerce.number().int().positive().default(4000),
   HOST: z.string().default("127.0.0.1"),
+  APP_ORIGIN: z.string().url().default("http://127.0.0.1:3000"),
+  NIVO_SETUP_TOKEN: z.string().min(32).optional(),
 });
 
 const parsed = envSchema.safeParse({
   DATABASE_URL: process.env.DATABASE_URL ?? "postgres://nivo:nivo@127.0.0.1:5432/nivo",
   PORT: process.env.PORT,
   HOST: process.env.HOST,
+  APP_ORIGIN: process.env.APP_ORIGIN,
+  NIVO_SETUP_TOKEN: process.env.NIVO_SETUP_TOKEN,
 });
 
 if (!parsed.success) {

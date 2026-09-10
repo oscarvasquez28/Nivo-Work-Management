@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Command, WorkspaceData } from "../../types/domain";
 
-export type DomainErrorCode = "validation" | "not-found" | "conflict" | "persistence-unavailable" | "corrupt-snapshot" | "unsupported-version";
+export type DomainErrorCode = "validation" | "not-found" | "conflict" | "persistence-unavailable" | "corrupt-snapshot" | "unsupported-version" | "unauthorized" | "forbidden";
 export class DomainError extends Error {
   constructor(public code: DomainErrorCode, message: string) { super(message); this.name = "DomainError"; }
 }
@@ -27,18 +27,19 @@ export const issueInputSchema = z.object({ title, description, teamId: id, proje
 export const projectInputSchema = z.object({ name, description, teamId: id, icon: z.string().min(1).max(80), color: z.string().max(80), status: z.enum(["planned", "in_progress", "paused", "completed"]), health: z.enum(["on_track", "at_risk", "off_track"]), leadId: id, memberIds: ids, startDate: date.nullable(), targetDate: date.nullable() }).strict();
 export const cycleInputSchema = z.object({ name, goal: z.string().max(10000), teamId: id, startDate: date, endDate: date }).strict();
 export const filtersSchema = z.object({ text: z.string().max(1000), statuses: z.array(status), priorities: z.array(priority), assignees: ids, projects: ids, cycles: ids, labels: ids, due: z.enum(["all", "overdue", "week", "none"]), estimate: z.enum(["all", "none", "small", "large"]), excludeDone: z.boolean() }).strict();
-export const savedViewSchema = z.object({ id, name, filters: filtersSchema, sort: z.enum(["manual", "updated", "priority", "due", "title", "identifier"]), group: z.enum(["status", "priority", "assignee", "project", "none"]), layout: z.enum(["list", "board"]) }).strict();
+export const savedViewSchema = z.object({ id, name, filters: filtersSchema, sort: z.enum(["manual", "updated", "priority", "due", "title", "identifier"]), group: z.enum(["status", "priority", "assignee", "project", "none"]), layout: z.enum(["list", "board"]), ownerId: id.nullable().optional(), teamId: id.nullable().optional(), visibility: z.enum(["personal", "team", "workspace"]).optional() }).strict();
 const issueSchema = issueInputSchema.extend({ id, identifier: z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/), order: z.number().finite(), createdAt: instant, updatedAt: instant, startedAt: instant.nullable(), completedAt: instant.nullable(), deletedAt: instant.nullable() });
 const projectSchema = projectInputSchema.extend({ id, createdAt: instant, updatedAt: instant, archivedAt: instant.nullable() });
 const cycleSchema = cycleInputSchema.extend({ id, closedAt: instant.nullable(), snapshot: z.object({ total: z.number().int().nonnegative(), completed: z.number().int().nonnegative(), points: z.number().nonnegative(), totalPoints: z.number().nonnegative() }).strict().nullable() });
 const commentSchema = z.object({ id, issueId: id, authorId: id, body, createdAt: instant, editedAt: instant.nullable() }).strict();
 const activitySchema = z.object({ id, issueId: id.nullable(), projectId: id.nullable(), cycleId: id.nullable(), actorId: id, message: z.string().min(1).max(2000), createdAt: instant }).strict();
 const userSchema = z.object({ id, name, initials: z.string().min(1).max(8), color: z.string().max(80), role: z.string().max(160), teamIds: ids }).strict();
-const teamSchema = z.object({ id, name, key: z.string().min(1).max(20), wipLimit: z.number().int().nonnegative() }).strict();
+const teamSchema = z.object({ id, name, key: z.string().min(1).max(20), wipLimit: z.number().int().nonnegative(), visibility: z.enum(["public", "private"]), ownerIds: ids }).strict();
+export const timezoneSchema = z.string().max(100).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }, "Choose a valid time zone");
 const labelSchema = z.object({ id, name, color: z.string().max(80) }).strict();
 export const snapshotSchema = z.object({
-  schemaVersion: z.literal(1), revision: z.number().int().nonnegative(),
-  workspace: z.object({ id: z.literal("nivo-labs"), name, issuePrefix: z.string().regex(/^[A-Z][A-Z0-9]*$/), nextIssueNumber: z.number().int().positive(), seedAnchorDate: date }).strict(),
+  schemaVersion: z.literal(2), revision: z.number().int().nonnegative(),
+  workspace: z.object({ id: z.literal("nivo-labs"), name, issuePrefix: z.string().regex(/^[A-Z][A-Z0-9]*$/), nextIssueNumber: z.number().int().positive(), seedAnchorDate: date, timezone: timezoneSchema, accessModel: z.enum(["project_legacy", "team"]) }).strict(),
   currentUserId: id, users: z.record(id, userSchema), teams: z.record(id, teamSchema), labels: z.record(id, labelSchema), projects: z.record(id, projectSchema), issues: z.record(id, issueSchema), cycles: z.record(id, cycleSchema), comments: z.record(id, commentSchema), activities: z.record(id, activitySchema), savedViews: z.record(id, savedViewSchema), appliedMutations: z.array(id).max(512),
 }).strict();
 
@@ -73,6 +74,10 @@ export function validateReferences(data: WorkspaceData) {
   const maps = [data.users, data.teams, data.labels, data.projects, data.issues, data.cycles, data.comments, data.activities, data.savedViews];
   for (const map of maps) for (const [key, entity] of Object.entries(map)) assert(key === entity.id, "Entity map key does not match its ID");
   for (const user of Object.values(data.users)) for (const teamId of user.teamIds) ref(data.teams, teamId, "User team");
+  for (const team of Object.values(data.teams)) for (const ownerId of team.ownerIds) {
+    ref(data.users, ownerId, "Team owner");
+    assert(data.users[ownerId].teamIds.includes(team.id), "Team owners must be members");
+  }
   for (const project of Object.values(data.projects)) {
     ref(data.teams, project.teamId, "Project team");
     ref(data.users, project.leadId, "Project lead");
@@ -133,7 +138,7 @@ export function validateReferences(data: WorkspaceData) {
 }
 
 export function validateSnapshot(raw: unknown): WorkspaceData {
-  if (raw && typeof raw === "object" && "schemaVersion" in raw && raw.schemaVersion !== 1) throw new DomainError("unsupported-version", "This workspace uses an unsupported schema version. Your saved data has not been changed.");
+  if (raw && typeof raw === "object" && "schemaVersion" in raw && raw.schemaVersion !== 2) throw new DomainError("unsupported-version", "This workspace uses an unsupported schema version. Your saved data has not been changed.");
   const result = snapshotSchema.safeParse(raw);
   if (!result.success) throw new DomainError("corrupt-snapshot", `The saved workspace is invalid: ${result.error.issues.slice(0, 3).map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   try { validateReferences(result.data); } catch (error) { throw new DomainError("corrupt-snapshot", error instanceof Error ? error.message : "The saved workspace contains invalid references."); }

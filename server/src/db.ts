@@ -10,10 +10,12 @@ export const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 10 })
 
 export type Tx = pg.PoolClient;
 
-export async function withTransaction<T>(work: (client: Tx) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
+export const withTransaction = <T>(work: (client: Tx) => Promise<T>) => transaction(pool, work);
+
+export async function transaction<T>(database: pg.Pool, work: (client: Tx) => Promise<T>, readOnly = false): Promise<T> {
+  const client = await database.connect();
   try {
-    await client.query("BEGIN");
+    await client.query(readOnly ? "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY" : "BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
     return result;

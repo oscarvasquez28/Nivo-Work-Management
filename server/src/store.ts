@@ -29,19 +29,19 @@ export async function loadSnapshot(client: Tx, lock = false): Promise<WorkspaceD
   ]);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: workspace.revision,
-    workspace: { id: workspace.id, name: workspace.name, issuePrefix: workspace.issue_prefix, nextIssueNumber: workspace.next_issue_number, seedAnchorDate: workspace.seed_anchor_date },
+    workspace: { id: workspace.id, name: workspace.name, issuePrefix: workspace.issue_prefix, nextIssueNumber: workspace.next_issue_number, seedAnchorDate: workspace.seed_anchor_date, timezone: workspace.timezone, accessModel: workspace.access_model },
     currentUserId: workspace.current_user_id,
     users: Object.fromEntries(users.map((row) => [row.id, { id: row.id, name: row.name, initials: row.initials, color: row.color, role: row.role, teamIds: userTeams.filter((link) => link.user_id === row.id).map((link) => link.team_id) }])),
-    teams: Object.fromEntries(teams.map((row) => [row.id, { id: row.id, name: row.name, key: row.key, wipLimit: row.wip_limit }])),
+    teams: Object.fromEntries(teams.map((row) => [row.id, { id: row.id, name: row.name, key: row.key, wipLimit: row.wip_limit, visibility: row.visibility, ownerIds: userTeams.filter((link) => link.team_id === row.id && link.access === "owner").map((link) => link.user_id) }])),
     labels: Object.fromEntries(labels.map((row) => [row.id, { id: row.id, name: row.name, color: row.color }])),
     projects: Object.fromEntries(projects.map((row) => [row.id, { id: row.id, name: row.name, description: row.description, teamId: row.team_id, icon: row.icon, color: row.color, status: row.status, health: row.health, leadId: row.lead_id, memberIds: projectMembers.filter((link) => link.project_id === row.id).map((link) => link.user_id), startDate: row.start_date, targetDate: row.target_date, archivedAt: dates(row.archived_at), createdAt: dates(row.created_at)!, updatedAt: dates(row.updated_at)! }])),
     cycles: Object.fromEntries(cycles.map((row) => [row.id, { id: row.id, name: row.name, goal: row.goal, teamId: row.team_id, startDate: row.start_date, endDate: row.end_date, closedAt: dates(row.closed_at), snapshot: row.snapshot }])),
     issues: Object.fromEntries(issues.map((row) => [row.id, { id: row.id, identifier: row.identifier, title: row.title, description: row.description, teamId: row.team_id, projectId: row.project_id, status: row.status, priority: row.priority, assigneeId: row.assignee_id, reporterId: row.reporter_id, cycleId: row.cycle_id, labelIds: issueLabels.filter((link) => link.issue_id === row.id).map((link) => link.label_id), estimate: row.estimate, startDate: row.start_date, dueDate: row.due_date, order: row.order, startedAt: dates(row.started_at), completedAt: dates(row.completed_at), deletedAt: dates(row.deleted_at), createdAt: dates(row.created_at)!, updatedAt: dates(row.updated_at)! }])),
     comments: Object.fromEntries(comments.map((row) => [row.id, { id: row.id, issueId: row.issue_id, authorId: row.author_id, body: row.body, createdAt: dates(row.created_at)!, editedAt: dates(row.edited_at) }])),
     activities: Object.fromEntries(activities.map((row) => [row.id, { id: row.id, issueId: row.issue_id, projectId: row.project_id, cycleId: row.cycle_id, actorId: row.actor_id, message: row.message, createdAt: dates(row.created_at)! }])),
-    savedViews: Object.fromEntries(views.map((row) => [row.id, { id: row.id, name: row.name, filters: row.filters, sort: row.sort, group: row.group, layout: row.layout }])),
+    savedViews: Object.fromEntries(views.map((row) => [row.id, { id: row.id, name: row.name, filters: row.filters, sort: row.sort, group: row.group, layout: row.layout, ownerId: row.owner_id, teamId: row.team_id, visibility: row.visibility }])),
     appliedMutations: workspace.applied_mutations,
   };
 }
@@ -55,10 +55,10 @@ const changed = (before: Record<string, object> | undefined, after: Record<strin
 export async function persistSnapshot(client: Tx, before: WorkspaceData | null, after: WorkspaceData) {
   const b = before ?? undefined;
   await client.query(
-    `INSERT INTO workspaces (id, name, issue_prefix, next_issue_number, seed_anchor_date, current_user_id, revision, applied_mutations)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     ON CONFLICT (id) DO UPDATE SET name=$2, issue_prefix=$3, next_issue_number=$4, seed_anchor_date=$5, current_user_id=$6, revision=$7, applied_mutations=$8`,
-    [WORKSPACE_ID, after.workspace.name, after.workspace.issuePrefix, after.workspace.nextIssueNumber, after.workspace.seedAnchorDate, after.currentUserId, after.revision, after.appliedMutations],
+    `INSERT INTO workspaces (id, name, issue_prefix, next_issue_number, seed_anchor_date, current_user_id, revision, applied_mutations, timezone, access_model)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (id) DO UPDATE SET name=$2, issue_prefix=$3, next_issue_number=$4, seed_anchor_date=$5, current_user_id=$6, revision=$7, applied_mutations=$8, timezone=$9, access_model=$10`,
+    [WORKSPACE_ID, after.workspace.name, after.workspace.issuePrefix, after.workspace.nextIssueNumber, after.workspace.seedAnchorDate, after.currentUserId, after.revision, after.appliedMutations, after.workspace.timezone, after.workspace.accessModel],
   );
 
   const sync = async (map: Record<string, object>, previous: Record<string, object> | undefined, upsert: (entity: Record<string, unknown>) => Promise<void>, remove: (id: string) => Promise<void>) => {
@@ -68,7 +68,7 @@ export async function persistSnapshot(client: Tx, before: WorkspaceData | null, 
   };
 
   await sync(after.teams as never, b?.teams as never, async (t) => {
-    await client.query(`INSERT INTO teams (id, workspace_id, name, key, wip_limit) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET name=$3, key=$4, wip_limit=$5`, [t.id, WORKSPACE_ID, t.name, t.key, t.wipLimit]);
+    await client.query(`INSERT INTO teams (id, workspace_id, name, key, wip_limit, visibility) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=$3, key=$4, wip_limit=$5, visibility=$6`, [t.id, WORKSPACE_ID, t.name, t.key, t.wipLimit, t.visibility]);
   }, async (id) => client.query("DELETE FROM teams WHERE id=$1", [id]).then(() => undefined));
 
   await sync(after.labels as never, b?.labels as never, async (l) => {
@@ -78,7 +78,10 @@ export async function persistSnapshot(client: Tx, before: WorkspaceData | null, 
   await sync(after.users as never, b?.users as never, async (u) => {
     await client.query(`INSERT INTO users (id, workspace_id, name, initials, color, role) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=$3, initials=$4, color=$5, role=$6`, [u.id, WORKSPACE_ID, u.name, u.initials, u.color, u.role]);
     await client.query("DELETE FROM user_teams WHERE workspace_id=$1 AND user_id=$2", [WORKSPACE_ID, u.id]);
-    for (const teamId of u.teamIds as string[]) await client.query("INSERT INTO user_teams (workspace_id, user_id, team_id) VALUES ($1,$2,$3)", [WORKSPACE_ID, u.id, teamId]);
+    for (const teamId of u.teamIds as string[]) {
+      const access = (after.teams[teamId]?.ownerIds as string[] | undefined)?.includes(u.id as string) ? "owner" : "member";
+      await client.query("INSERT INTO user_teams (workspace_id, user_id, team_id, access) VALUES ($1,$2,$3,$4)", [WORKSPACE_ID, u.id, teamId, access]);
+    }
   }, async (id) => { await client.query("DELETE FROM user_teams WHERE workspace_id=$1 AND user_id=$2", [WORKSPACE_ID, id]); await client.query("DELETE FROM users WHERE id=$1", [id]); });
 
   await sync(after.projects as never, b?.projects as never, async (p) => {
@@ -118,8 +121,8 @@ export async function persistSnapshot(client: Tx, before: WorkspaceData | null, 
   }, async (id) => client.query("DELETE FROM activities WHERE id=$1", [id]).then(() => undefined));
 
   await sync(after.savedViews as never, b?.savedViews as never, async (v) => {
-    await client.query(`INSERT INTO saved_views (id, workspace_id, name, filters, sort, "group", layout) VALUES ($1,$2,$3,$4,$5,$6,$7)
-      ON CONFLICT (id) DO UPDATE SET name=$3, filters=$4, sort=$5, "group"=$6, layout=$7`,
-      [v.id, WORKSPACE_ID, v.name, JSON.stringify(v.filters), v.sort, v.group, v.layout]);
+    await client.query(`INSERT INTO saved_views (id, workspace_id, name, filters, sort, "group", layout, owner_id, team_id, visibility) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT (id) DO UPDATE SET name=$3, filters=$4, sort=$5, "group"=$6, layout=$7, owner_id=$8, team_id=$9, visibility=$10`,
+      [v.id, WORKSPACE_ID, v.name, JSON.stringify(v.filters), v.sort, v.group, v.layout, v.ownerId ?? null, v.teamId ?? null, v.visibility ?? "workspace"]);
   }, async (id) => client.query("DELETE FROM saved_views WHERE id=$1", [id]).then(() => undefined));
 }

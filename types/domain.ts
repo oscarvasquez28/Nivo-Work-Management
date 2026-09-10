@@ -3,7 +3,8 @@ export type Priority = "none" | "urgent" | "high" | "medium" | "low";
 export type ProjectStatus = "planned" | "in_progress" | "paused" | "completed";
 export type Health = "on_track" | "at_risk" | "off_track";
 export interface User { id: string; name: string; initials: string; color: string; role: string; teamIds: string[]; }
-export interface Team { id: string; name: string; key: string; wipLimit: number; }
+export interface SessionUser { id: string; name: string; email: string; access: "admin" | "member"; }
+export interface Team { id: string; name: string; key: string; wipLimit: number; visibility: "public" | "private"; ownerIds: string[]; }
 export interface Label { id: string; name: string; color: string; }
 export interface ProjectInput { name: string; description: string; teamId: string; icon: string; color: string; status: ProjectStatus; health: Health; leadId: string; memberIds: string[]; startDate: string | null; targetDate: string | null; }
 export interface Project extends ProjectInput { id: string; createdAt: string; updatedAt: string; archivedAt: string | null; }
@@ -16,8 +17,8 @@ export interface Activity { id: string; issueId: string | null; projectId: strin
 export interface IssueFilters { text: string; statuses: Status[]; priorities: Priority[]; assignees: string[]; projects: string[]; cycles: string[]; labels: string[]; due: "all" | "overdue" | "week" | "none"; estimate: "all" | "none" | "small" | "large"; excludeDone: boolean; }
 export type IssueSort = "manual" | "updated" | "priority" | "due" | "title" | "identifier";
 export type IssueGroup = "status" | "priority" | "assignee" | "project" | "none";
-export interface SavedView { id: string; name: string; filters: IssueFilters; sort: IssueSort; group: IssueGroup; layout: "list" | "board"; }
-export interface WorkspaceData { schemaVersion: 1; revision: number; workspace: { id: string; name: string; issuePrefix: string; nextIssueNumber: number; seedAnchorDate: string }; currentUserId: string; users: Record<string, User>; teams: Record<string, Team>; labels: Record<string, Label>; projects: Record<string, Project>; issues: Record<string, Issue>; cycles: Record<string, Cycle>; comments: Record<string, Comment>; activities: Record<string, Activity>; savedViews: Record<string, SavedView>; appliedMutations: string[]; }
+export interface SavedView { id: string; name: string; filters: IssueFilters; sort: IssueSort; group: IssueGroup; layout: "list" | "board"; ownerId?: string | null; teamId?: string | null; visibility?: "personal" | "team" | "workspace"; }
+export interface WorkspaceData { schemaVersion: 2; revision: number; workspace: { id: string; name: string; issuePrefix: string; nextIssueNumber: number; seedAnchorDate: string; timezone: string; accessModel: "project_legacy" | "team" }; currentUserId: string; users: Record<string, User>; teams: Record<string, Team>; labels: Record<string, Label>; projects: Record<string, Project>; issues: Record<string, Issue>; cycles: Record<string, Cycle>; comments: Record<string, Comment>; activities: Record<string, Activity>; savedViews: Record<string, SavedView>; appliedMutations: string[]; }
 export type Command =
   | { type: "issue.create"; input: Partial<IssueInput> & { title: string }; id?: string }
   | { type: "issue.update"; id: string; patch: Partial<IssueInput> }

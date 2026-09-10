@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { applyCommand } from "../../lib/domain/commands";
 import { createSeed } from "../../lib/data/seed";
@@ -23,8 +23,10 @@ describeDb("postgres workspace store", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = `${DATABASE_URL}`;
     pool = new pg.Pool({ connectionString: DATABASE_URL });
-    const sql = readFileSync(join(__dirname, "../../server/migrations/001_init.sql"), "utf8");
-    await pool.query(sql);
+    const migrationsDir = join(__dirname, "../../server/migrations");
+    for (const file of readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort()) {
+      await pool.query(readFileSync(join(migrationsDir, file), "utf8"));
+    }
     store = await import("../../server/src/store");
   }, 30000);
 

@@ -17,7 +17,9 @@ export interface WorkspaceState {
   pending: number;
   notice: WorkspaceNotice | null;
   authRequired: boolean;
+  installRequired: boolean;
   login: (email: string, password: string) => Promise<string | undefined>;
+  install: (input: { name: string; email: string; password: string; workspaceName: string; timezone: string; firstTeamName: string; firstTeamKey: string }) => Promise<string | undefined>;
   logout: () => Promise<void>;
   refresh: () => void;
   mutate: (command: Command) => Promise<string | undefined>;
@@ -29,8 +31,8 @@ const WorkspaceContext = createContext<StoreApi<WorkspaceState> | null>(null);
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => createStore<WorkspaceState>(() => ({
-    data: null, ready: false, error: null, pending: 0, notice: null, authRequired: false,
-    login: async () => "The workspace is still loading.", logout: async () => undefined, refresh: () => undefined,
+    data: null, ready: false, error: null, pending: 0, notice: null, authRequired: false, installRequired: false,
+    login: async () => "The workspace is still loading.", install: async () => "The workspace is still loading.", logout: async () => undefined, refresh: () => undefined,
     mutate: async () => { throw new Error("The workspace is still loading."); },
     retry: () => undefined, useMemory: () => undefined, dismissNotice: () => undefined,
   })));
@@ -74,12 +76,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           return "The Nivo server could not be reached. Check that the API is running.";
         }
       },
+      install: async (input) => {
+        try {
+          const response = await fetch("/api/install", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({})) as { message?: string };
+            return body.message ?? "The workspace could not be created. Try again.";
+          }
+          store.setState({ installRequired: false });
+          start(repository, false);
+          return undefined;
+        } catch {
+          return "The Nivo server could not be reached. Check that the API is running.";
+        }
+      },
       logout: async () => {
         await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
         window.location.reload();
       },
     });
     void (async () => {
+      try {
+        const status = await fetch("/api/install");
+        if (!status.ok) throw new Error("Server error");
+        const { installed } = await status.json() as { installed: boolean };
+        if (!installed) { store.setState({ installRequired: true, authRequired: false }); return; }
+      } catch {
+        store.setState({ error: "The Nivo server could not be reached. Check that the API is running.", authRequired: false, installRequired: false });
+        start(repository, false);
+        return;
+      }
       try {
         const me = await fetch("/api/auth/me");
         if (me.status === 401) { store.setState({ authRequired: true }); return; }

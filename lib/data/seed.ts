@@ -50,13 +50,13 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
   ];
   const projects = Object.fromEntries(projectRows.map(([id, name, teamId, icon, color, leadId, memberIds, description], index): [string, Project] => [id, { id, name, teamId, icon, color, leadId, memberIds: [leadId, ...memberIds], description, status: "in_progress", health: index === 1 ? "at_risk" : "on_track", startDate: day(-65 + index * 7), targetDate: day(21 + index * 14), createdAt: instant(-90), updatedAt: instant(-index), archivedAt: null }]));
   const data: WorkspaceData = {
-    schemaVersion: 1, revision: 0,
-    workspace: { id: "nivo-labs", name: "Nivo Labs", issuePrefix: "NIV", nextIssueNumber: 151, seedAnchorDate: date }, currentUserId: "user-oscar", users,
+    schemaVersion: 2, revision: 0,
+    workspace: { id: "nivo-labs", name: "Nivo Labs", issuePrefix: "NIV", nextIssueNumber: 151, seedAnchorDate: date, timezone: "UTC", accessModel: "team" }, currentUserId: "user-oscar", users,
     teams: {
-      engineering: { id: "engineering", name: "Engineering", key: "ENG", wipLimit: 12 },
-      product: { id: "product", name: "Product", key: "PRD", wipLimit: 8 },
-      design: { id: "design", name: "Design", key: "DSN", wipLimit: 6 },
-      growth: { id: "growth", name: "Growth", key: "GRO", wipLimit: 5 },
+      engineering: { id: "engineering", name: "Engineering", key: "ENG", wipLimit: 12, visibility: "public", ownerIds: ["user-sarah"] },
+      product: { id: "product", name: "Product", key: "PRD", wipLimit: 8, visibility: "public", ownerIds: ["user-sophie"] },
+      design: { id: "design", name: "Design", key: "DSN", wipLimit: 6, visibility: "public", ownerIds: ["user-mia"] },
+      growth: { id: "growth", name: "Growth", key: "GRO", wipLimit: 5, visibility: "public", ownerIds: ["user-olivia"] },
     },
     labels, projects,
     cycles: {

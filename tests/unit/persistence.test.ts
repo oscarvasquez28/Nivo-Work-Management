@@ -47,7 +47,7 @@ describe("IndexedDB recovery", () => {
   it("does not overwrite corrupt or newer-version snapshots during bootstrap", async () => {
     const name = `corrupt-${crypto.randomUUID()}`;
     const db = await openDB(name, 1, { upgrade(database) { database.createObjectStore("snapshots"); } });
-    const raw = { schemaVersion: 2, important: "Do not overwrite" };
+    const raw = { schemaVersion: 3, important: "Do not overwrite" };
     await db.put("snapshots", raw, "nivo-labs");
     const repo = createIndexedDBRepository(name);
     await expect(repo.load()).rejects.toMatchObject({ code: "unsupported-version" });
