@@ -32,7 +32,7 @@ test("create, edit, comment, navigate back and persist an issue", async ({ page 
   await create.getByLabel("Issue title", { exact: true }).fill("Validate the complete Nivo workflow");
   await create.getByLabel("Description", { exact: true }).fill("A **real** issue with persisted context.");
   await create.getByLabel("Project", { exact: true }).selectOption("nivo-2");
-  await create.getByLabel("Assignee", { exact: true }).selectOption("user-oscar");
+  await create.getByLabel("Assignee", { exact: true }).selectOption("user-admin");
   await create.getByLabel("Status", { exact: true }).selectOption("todo");
   await create.getByLabel("Priority", { exact: true }).selectOption("high");
   await create.getByRole("button", { name: "Create issue", exact: true }).click();
@@ -52,7 +52,7 @@ test("create, edit, comment, navigate back and persist an issue", async ({ page 
   await page.reload();
   await expect(page.getByRole("dialog", { name: "Issue details", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Status", { exact: true })).toHaveValue("done");
-  await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("user-oscar");
+  await expect(page.getByLabel("Assignee", { exact: true })).toHaveValue("user-admin");
   await page.goto("/my-issues");
   await expect(page.getByRole("link", { name: /Validate the complete Nivo workflow/ }).first()).toBeVisible();
   await page.goto(issueUrl);
