@@ -161,6 +161,14 @@ app.post("/api/members", { preHandler: adminOnly }, async (request, reply) => {
   const id = `user-${randomBytes(6).toString("hex")}`;
   const initials = name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
   await withTransaction(async (client) => {
+    const data = await loadSnapshot(client);
+    if (!data) throw new DomainError("not-found", "The workspace has not been initialized.");
+    const userTeamIds = new Set(teamIds ?? []);
+    for (const project of projectIds ?? []) {
+      const p = data.projects[project];
+      if (!p) throw new DomainError("not-found", "Project not found.");
+      if (!userTeamIds.has(p.teamId)) throw new DomainError("validation", "A project can only be assigned to members of its team.");
+    }
     await client.query("INSERT INTO users (id, workspace_id, name, initials, color, role) VALUES ($1,$2,$3,$4,$5,$6)", [id, WORKSPACE_ID, name, initials, color ?? "#9aa8ff", title ?? "Member"]);
     for (const team of teamIds ?? []) await client.query("INSERT INTO user_teams (workspace_id, user_id, team_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [WORKSPACE_ID, id, team]);
     for (const project of projectIds ?? []) await client.query("INSERT INTO project_members (workspace_id, project_id, user_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [WORKSPACE_ID, project, id]);
@@ -179,6 +187,14 @@ app.patch("/api/members/:id", { preHandler: adminOnly }, async (request, reply) 
   const target = await pool.query("SELECT id FROM users WHERE id = $1 AND workspace_id = $2", [id, WORKSPACE_ID]);
   if (!target.rows[0]) return reply.status(404).send({ code: "not-found", message: "Member not found." });
   await withTransaction(async (client) => {
+    const data = await loadSnapshot(client);
+    if (!data) throw new DomainError("not-found", "The workspace has not been initialized.");
+    const userTeamIds = new Set(teamIds ?? data.users[id]?.teamIds ?? []);
+    for (const project of projectIds ?? []) {
+      const p = data.projects[project];
+      if (!p) throw new DomainError("not-found", "Project not found.");
+      if (!userTeamIds.has(p.teamId)) throw new DomainError("validation", "A project can only be assigned to members of its team.");
+    }
     if (name !== undefined) await client.query("UPDATE users SET name = $1 WHERE id = $2", [name, id]);
     if (initials !== undefined) await client.query("UPDATE users SET initials = $1 WHERE id = $2", [initials, id]);
     if (color !== undefined) await client.query("UPDATE users SET color = $1 WHERE id = $2", [color, id]);
