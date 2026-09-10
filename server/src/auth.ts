@@ -48,7 +48,8 @@ export async function lookupSession(token: string | null, db: Database = pool): 
   return result.rows[0] ?? null;
 }
 
-export async function findCredential(email: string, db: Database = pool) {
+export async function findCredential(email: string, db: Database = pool): Promise<{ userId: string; passwordHash: string; disabled: boolean } | null> {
   const result = await db.query<{ user_id: string; password_hash: string; disabled: boolean }>("SELECT user_id, password_hash, disabled FROM credentials WHERE lower(trim(email)) = $1", [email.trim().toLowerCase()]);
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  return row ? { userId: row.user_id, passwordHash: row.password_hash, disabled: row.disabled } : null;
 }
