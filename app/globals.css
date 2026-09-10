@@ -149,7 +149,7 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 :root[data-theme="light"] .select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6d7b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E"); }
 .textarea { display: block; min-height: 110px; resize: vertical; }
 .search-input { position: relative; display: flex; align-items: center; }
-.search-input > svg { position: absolute; left: 10px; color: var(--muted); pointer-events: none; }
+.search-input > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .search-input .input { padding-left: 32px; }
 .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .field-label, .form-label { color: var(--text-secondary); font-size: 12px; font-weight: 500; }
