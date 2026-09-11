@@ -13,6 +13,8 @@
     "migrate": "npm --prefix server run migrate",
     "build": "next build",
     "start": "next start",
+    "postinstall": "npm --prefix server install",
+    "start:all": "npm --prefix server run migrate && (PORT=4000 npm --prefix server start & next start)",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
