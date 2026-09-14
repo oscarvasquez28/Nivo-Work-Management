@@ -40,3 +40,5 @@ Browser ── /api/* ──► Next.js rewrite ──► Fastify (:4000) ──
 - Domain rules live once in `lib/domain/commands.ts` (`applyCommand`). The server loads the workspace snapshot inside a transaction, applies the command, and writes the diff back to normalized tables (`server/src/store.ts`). Revisions and `applied_mutations` provide optimistic-concurrency and idempotent mutations.
 - The client keeps its optimistic mutation coordinator; it now persists through `lib/repositories/http.ts` and polls `GET /api/workspace/revision` to refresh when another client commits.
 - Schema: normalized tables per entity (`workspaces`, `teams`, `users`, `labels`, `projects`, `project_members`, `cycles`, `issues`, `issue_labels`, `comments`, `activities`, `saved_views`) in `server/migrations/001_init.sql`.
+
+<img width="2940" height="1620" alt="image" src="https://github.com/user-attachments/assets/edec5d6f-3fff-4d08-a335-186588bc0994" />
