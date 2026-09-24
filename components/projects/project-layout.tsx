@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Archive, ArrowLeft, CalendarRange, Columns3, LayoutDashboard, ListChecks, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { Activity, Archive, ArrowLeft, CalendarRange, ChartGantt, Columns3, LayoutDashboard, ListChecks, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { Badge, Button, EmptyState, Modal, cn } from "@/components/ui";
 import { useWorkspace } from "@/stores/workspace";
 import { ProjectFormDialog } from "./project-form";
@@ -13,6 +13,7 @@ const TABS = [
   { name: "Overview", path: "", icon: LayoutDashboard },
   { name: "Issues", path: "/issues", icon: ListChecks },
   { name: "Board", path: "/board", icon: Columns3 },
+  { name: "Timeline", path: "/timeline", icon: ChartGantt },
   { name: "Cycles", path: "/cycles", icon: CalendarRange },
   { name: "Activity", path: "/activity", icon: Activity },
 ];

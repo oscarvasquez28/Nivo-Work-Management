@@ -6,8 +6,9 @@ import { inlineSelectClass } from "./issue-properties";
 
 export type IssuePatchHandler = (id: string, patch: Partial<IssueInput>) => void;
 
-export function StatusPicker({ issue, onPatch, disabled }: { issue: Issue; onPatch: IssuePatchHandler; disabled?: boolean }) {
-  return <div className="flex min-w-0 items-center gap-1"><StatusIcon status={issue.status}/><Select aria-label={`Status for ${issue.identifier}`} title="Change status" className={inlineSelectClass} value={issue.status} disabled={disabled} onChange={(event) => onPatch(issue.id, { status: event.target.value as Issue["status"] })}>{STATUSES.map((status) => <option key={status.id} value={status.id}>{status.name}</option>)}</Select></div>;
+export function StatusPicker({ issue, onPatch, disabled, blocked = false }: { issue: Issue; onPatch: IssuePatchHandler; disabled?: boolean; blocked?: boolean }) {
+  const forward = ["in_progress", "in_review", "done"];
+  return <div className="flex min-w-0 items-center gap-1"><StatusIcon status={issue.status}/><Select aria-label={`Status for ${issue.identifier}`} title={blocked ? "Blocked — finish the blocking issues first" : "Change status"} className={inlineSelectClass} value={issue.status} disabled={disabled} onChange={(event) => onPatch(issue.id, { status: event.target.value as Issue["status"] })}>{STATUSES.map((status) => <option key={status.id} value={status.id} disabled={blocked && forward.includes(status.id)}>{status.name}</option>)}</Select></div>;
 }
 
 export function PriorityPicker({ issue, onPatch, disabled }: { issue: Issue; onPatch: IssuePatchHandler; disabled?: boolean }) {

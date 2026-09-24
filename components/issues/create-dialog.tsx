@@ -19,7 +19,7 @@ function CreateForm({ data, defaults, onOpenChange }: { data: WorkspaceData; def
   const [initial] = useState<IssueInput>(() => ({
     title: "", description: "", status: "backlog", priority: "none", projectId: null,
     cycleId: null, assigneeId: null, reporterId: data.currentUserId, labelIds: [], estimate: null,
-    startDate: null, dueDate: null, ...defaults,
+    startDate: null, dueDate: null, actualEndDate: null, ...defaults,
     teamId: (defaults?.projectId && data.projects[defaults.projectId]?.teamId) || (defaults?.cycleId && data.cycles[defaults.cycleId]?.teamId) || defaults?.teamId || Object.keys(data.teams)[0],
   }));
   const [draft, setDraft] = useState(initial);
