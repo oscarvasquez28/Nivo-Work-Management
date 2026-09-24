@@ -8,23 +8,31 @@ export interface Team { id: string; name: string; key: string; wipLimit: number;
 export interface Label { id: string; name: string; color: string; }
 export interface ProjectInput { name: string; description: string; teamId: string; icon: string; color: string; status: ProjectStatus; health: Health; leadId: string; memberIds: string[]; startDate: string | null; targetDate: string | null; }
 export interface Project extends ProjectInput { id: string; createdAt: string; updatedAt: string; archivedAt: string | null; }
-export interface IssueInput { title: string; description: string; teamId: string; projectId: string | null; status: Status; priority: Priority; assigneeId: string | null; reporterId: string; cycleId: string | null; labelIds: string[]; estimate: number | null; startDate: string | null; dueDate: string | null; }
+export interface IssueInput { title: string; description: string; teamId: string; projectId: string | null; status: Status; priority: Priority; assigneeId: string | null; reporterId: string; cycleId: string | null; labelIds: string[]; estimate: number | null; startDate: string | null; dueDate: string | null; actualEndDate: string | null; }
 export interface Issue extends IssueInput { id: string; identifier: string; order: number; createdAt: string; updatedAt: string; startedAt: string | null; completedAt: string | null; deletedAt: string | null; }
 export interface CycleInput { name: string; goal: string; teamId: string; startDate: string; endDate: string; }
-export interface Cycle extends CycleInput { id: string; closedAt: string | null; snapshot: { total: number; completed: number; points: number; totalPoints: number } | null; }
+export interface Cycle extends CycleInput { id: string; closedAt: string | null; snapshot: { total: number; completed: number; points: number; totalPoints: number; weightCompleted?: number; weightTotal?: number } | null; }
 export interface Comment { id: string; issueId: string; authorId: string; body: string; createdAt: string; editedAt: string | null; }
 export interface Activity { id: string; issueId: string | null; projectId: string | null; cycleId: string | null; actorId: string; message: string; createdAt: string; }
-export interface IssueFilters { text: string; statuses: Status[]; priorities: Priority[]; assignees: string[]; projects: string[]; cycles: string[]; labels: string[]; due: "all" | "overdue" | "week" | "none"; estimate: "all" | "none" | "small" | "large"; excludeDone: boolean; }
+export type IssueLinkType = "blocks" | "relates_to";
+export interface IssueLink { id: string; type: IssueLinkType; sourceIssueId: string; targetIssueId: string; createdAt: string; }
+export type NotificationKind = "assigned" | "unblocked";
+export interface Notification { id: string; userId: string; issueId: string | null; kind: NotificationKind; message: string; createdAt: string; readAt: string | null; }
+export interface IssueFilters { text: string; statuses: Status[]; priorities: Priority[]; assignees: string[]; projects: string[]; cycles: string[]; labels: string[]; due: "all" | "overdue" | "week" | "none"; estimate: "all" | "none" | "small" | "large"; blocked: "all" | "blocked" | "unblocked"; excludeDone: boolean; }
 export type IssueSort = "manual" | "updated" | "priority" | "due" | "title" | "identifier";
 export type IssueGroup = "status" | "priority" | "assignee" | "project" | "none";
 export interface SavedView { id: string; name: string; filters: IssueFilters; sort: IssueSort; group: IssueGroup; layout: "list" | "board"; ownerId?: string | null; teamId?: string | null; visibility?: "personal" | "team" | "workspace"; }
-export interface WorkspaceData { schemaVersion: 2; revision: number; workspace: { id: string; name: string; issuePrefix: string; nextIssueNumber: number; seedAnchorDate: string; timezone: string; accessModel: "project_legacy" | "team" }; currentUserId: string; users: Record<string, User>; teams: Record<string, Team>; labels: Record<string, Label>; projects: Record<string, Project>; issues: Record<string, Issue>; cycles: Record<string, Cycle>; comments: Record<string, Comment>; activities: Record<string, Activity>; savedViews: Record<string, SavedView>; appliedMutations: string[]; }
+export interface WorkspaceData { schemaVersion: 3; revision: number; workspace: { id: string; name: string; issuePrefix: string; nextIssueNumber: number; seedAnchorDate: string; timezone: string; accessModel: "project_legacy" | "team" }; currentUserId: string; users: Record<string, User>; teams: Record<string, Team>; labels: Record<string, Label>; projects: Record<string, Project>; issues: Record<string, Issue>; issueLinks: Record<string, IssueLink>; cycles: Record<string, Cycle>; comments: Record<string, Comment>; activities: Record<string, Activity>; notifications: Record<string, Notification>; savedViews: Record<string, SavedView>; appliedMutations: string[]; }
 export type Command =
   | { type: "issue.create"; input: Partial<IssueInput> & { title: string }; id?: string }
   | { type: "issue.update"; id: string; patch: Partial<IssueInput> }
   | { type: "issue.move"; id: string; status: Status; beforeId?: string }
   | { type: "issue.delete" | "issue.restore"; id: string }
+  | { type: "issue.link"; issueId: string; targetIssueId: string; linkType: IssueLinkType; id?: string }
+  | { type: "issue.unlink"; id: string }
   | { type: "issues.bulk"; ids: string[]; patch?: Partial<IssueInput>; delete?: boolean; addLabel?: string; removeLabel?: string }
+  | { type: "notification.read"; id: string }
+  | { type: "notifications.readAll" }
   | { type: "project.create"; input: ProjectInput; id?: string }
   | { type: "project.update"; id: string; patch: Partial<ProjectInput> }
   | { type: "project.archive"; id: string; archived: boolean }
@@ -46,4 +54,4 @@ export const STATUSES: { id: Status; name: string; color: string }[] = [
 export const PRIORITIES: { id: Priority; name: string }[] = [
   { id: "none", name: "No priority" }, { id: "urgent", name: "Urgent" }, { id: "high", name: "High" }, { id: "medium", name: "Medium" }, { id: "low", name: "Low" },
 ];
-export const EMPTY_FILTERS: IssueFilters = { text: "", statuses: [], priorities: [], assignees: [], projects: [], cycles: [], labels: [], due: "all", estimate: "all", excludeDone: false };
+export const EMPTY_FILTERS: IssueFilters = { text: "", statuses: [], priorities: [], assignees: [], projects: [], cycles: [], labels: [], due: "all", estimate: "all", blocked: "all", excludeDone: false };
