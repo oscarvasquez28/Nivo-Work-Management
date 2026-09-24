@@ -30,6 +30,7 @@ export function normalizeIssueFilters(value: unknown): IssueFilters {
     assignees: strings(input.assignees), projects: strings(input.projects), cycles: strings(input.cycles), labels: strings(input.labels),
     due: input.due === "overdue" || input.due === "week" || input.due === "none" ? input.due : "all",
     estimate: input.estimate === "none" || input.estimate === "small" || input.estimate === "large" ? input.estimate : "all",
+    blocked: input.blocked === "blocked" || input.blocked === "unblocked" ? input.blocked : "all",
     excludeDone: input.excludeDone === true,
   };
 }

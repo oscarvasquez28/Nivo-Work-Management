@@ -1,4 +1,4 @@
-import { EMPTY_FILTERS, type Issue, type IssueFilters, type IssueSort, type WorkspaceData } from "../../types/domain";
+import { EMPTY_FILTERS, type Issue, type IssueFilters, type IssueLink, type IssueSort, type WorkspaceData } from "../../types/domain";
 
 const priorityRank = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
 const normalize = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -22,6 +22,7 @@ export function selectIssues(data: WorkspaceData, filters: Partial<IssueFilters>
     if (f.estimate === "none" && issue.estimate !== null) return false;
     if (f.estimate === "small" && (issue.estimate === null || issue.estimate > 3)) return false;
     if (f.estimate === "large" && (issue.estimate === null || issue.estimate < 5)) return false;
+    if (f.blocked !== "all" && (f.blocked === "blocked") !== isIssueBlocked(data, issue)) return false;
     return true;
   }).sort((a, b) => {
     let order = 0;
@@ -37,21 +38,74 @@ export function selectIssues(data: WorkspaceData, filters: Partial<IssueFilters>
   });
 }
 
+export function issueDuration(issue: Issue): number {
+  if (!issue.startDate || !issue.dueDate) return 1;
+  const days = Math.round((Date.parse(`${issue.dueDate}T00:00:00Z`) - Date.parse(`${issue.startDate}T00:00:00Z`)) / 86400000) + 1;
+  return Math.max(1, days);
+}
+
 function progress(issues: Issue[]) {
   const total = issues.length;
   const completed = issues.filter((issue) => issue.status === "done").length;
-  return { total, completed, percent: total ? Math.round(completed / total * 100) : 0 };
+  const weightTotal = issues.reduce((sum, issue) => sum + issueDuration(issue), 0);
+  const weightCompleted = issues.reduce((sum, issue) => sum + (issue.status === "done" ? issueDuration(issue) : 0), 0);
+  return { total, completed, weightTotal, weightCompleted, percent: weightTotal ? Math.round(weightCompleted / weightTotal * 100) : 0 };
 }
 
-export function projectProgress(data: WorkspaceData, id: string): { total: number; completed: number; percent: number } {
+export function projectProgress(data: WorkspaceData, id: string): { total: number; completed: number; weightTotal: number; weightCompleted: number; percent: number } {
   return progress(Object.values(data.issues).filter((issue) => !issue.deletedAt && issue.projectId === id));
 }
 
-export function cycleProgress(data: WorkspaceData, id: string): { total: number; completed: number; percent: number; points: number; totalPoints: number } {
+export function cycleProgress(data: WorkspaceData, id: string): { total: number; completed: number; weightTotal: number; weightCompleted: number; percent: number; points: number; totalPoints: number } {
   const cycle = data.cycles[id];
-  if (cycle?.closedAt && cycle.snapshot) return { ...cycle.snapshot, percent: cycle.snapshot.total ? Math.round(cycle.snapshot.completed / cycle.snapshot.total * 100) : 0 };
+  if (cycle?.closedAt && cycle.snapshot) {
+    const weightTotal = cycle.snapshot.weightTotal ?? cycle.snapshot.total;
+    const weightCompleted = cycle.snapshot.weightCompleted ?? cycle.snapshot.completed;
+    return { ...cycle.snapshot, weightTotal, weightCompleted, percent: weightTotal ? Math.round(weightCompleted / weightTotal * 100) : 0 };
+  }
   const issues = Object.values(data.issues).filter((issue) => !issue.deletedAt && issue.cycleId === id);
   return { ...progress(issues), points: issues.reduce((sum, issue) => sum + (issue.status === "done" ? issue.estimate ?? 0 : 0), 0), totalPoints: issues.reduce((sum, issue) => sum + (issue.estimate ?? 0), 0) };
+}
+
+export function issueBlockers(data: WorkspaceData, issueId: string): IssueLink[] {
+  return Object.values(data.issueLinks).filter((link) => link.type === "blocks" && link.targetIssueId === issueId && !data.issues[link.sourceIssueId]?.deletedAt);
+}
+
+export function issueBlocking(data: WorkspaceData, issueId: string): IssueLink[] {
+  return Object.values(data.issueLinks).filter((link) => link.type === "blocks" && link.sourceIssueId === issueId && !data.issues[link.targetIssueId]?.deletedAt);
+}
+
+export function issueRelated(data: WorkspaceData, issueId: string): IssueLink[] {
+  return Object.values(data.issueLinks).filter((link) => link.type === "relates_to" && (link.sourceIssueId === issueId || link.targetIssueId === issueId) && !data.issues[link.sourceIssueId === issueId ? link.targetIssueId : link.sourceIssueId]?.deletedAt);
+}
+
+export function isIssueBlocked(data: WorkspaceData, issue: Issue): boolean {
+  return issueBlockers(data, issue.id).some((link) => data.issues[link.sourceIssueId]?.status !== "done");
+}
+
+export function issueSchedule(issue: Issue, today: string): { plannedPercent: number | null; actualPercent: number; plannedDays: number | null; actualDays: number | null } {
+  let plannedPercent: number | null = null;
+  let plannedDays: number | null = null;
+  if (issue.startDate && issue.dueDate) {
+    const start = Date.parse(`${issue.startDate}T00:00:00Z`);
+    const end = Date.parse(`${issue.dueDate}T00:00:00Z`);
+    plannedDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
+    plannedPercent = Math.max(0, Math.min(100, Math.round((Date.parse(`${today}T00:00:00Z`) - start) / 86400000 / plannedDays * 100)));
+  }
+  let actualDays: number | null = null;
+  if (issue.startedAt) {
+    const actualEnd = issue.actualEndDate ?? today;
+    actualDays = Math.max(1, Math.round((Date.parse(`${actualEnd}T00:00:00Z`) - Date.parse(issue.startedAt)) / 86400000) + 1);
+  }
+  const actualPercent = issue.status === "done" ? 100 : issue.status === "in_review" ? 75 : issue.status === "in_progress" ? 50 : 0;
+  return { plannedPercent, actualPercent, plannedDays, actualDays };
+}
+
+export function overdueIssuesFor(data: WorkspaceData, userId: string): Issue[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return Object.values(data.issues)
+    .filter((issue) => !issue.deletedAt && issue.assigneeId === userId && issue.status !== "done" && !!issue.dueDate && issue.dueDate < today)
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? "") || a.identifier.localeCompare(b.identifier));
 }
 
 export function dateLabel(date: string | null): string {
