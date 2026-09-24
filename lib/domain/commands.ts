@@ -1,4 +1,4 @@
-import { STATUSES, type Command, type Issue, type IssueInput, type WorkspaceData } from "../../types/domain";
+import { STATUSES, type Command, type Issue, type IssueInput, type NotificationKind, type WorkspaceData } from "../../types/domain";
 import { cycleProgress } from "./selectors";
 import { assert, DomainError, snapshotSchema, validateCommand, validateReferences } from "./validation";
 
@@ -25,6 +25,21 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
     next.activities[id] = { id, issueId: refs.issueId ?? null, projectId: refs.projectId ?? null, cycleId: refs.cycleId ?? null, actorId, message, createdAt: now };
   };
   const issueActivity = (issue: Issue, message: string) => activity(message, { issueId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId });
+  let notificationNumber = 0;
+  const notify = (userId: string | null, kind: NotificationKind, message: string, issueId: string | null) => {
+    if (!userId || userId === actorId || !next.users[userId]) return;
+    const id = `notification-${mutationId}-${notificationNumber++}`;
+    assert(!next.notifications[id], "Notification ID already exists", "conflict");
+    next.notifications[id] = { id, userId, issueId, kind, message, createdAt: now, readAt: null };
+  };
+  const notifyUnblocked = (issue: Issue) => {
+    for (const link of Object.values(next.issueLinks)) {
+      if (link.type !== "blocks" || link.sourceIssueId !== issue.id) continue;
+      const blocked = next.issues[link.targetIssueId];
+      if (!blocked || blocked.deletedAt || blocked.status === "done") continue;
+      notify(blocked.assigneeId, "unblocked", `${issue.identifier} was completed and no longer blocks ${blocked.identifier}`, blocked.id);
+    }
+  };
   const liveIssue = (id: string) => {
     const issue = get(next.issues, id, "Issue");
     assert(!issue.deletedAt, "Restore this issue before editing it");
@@ -56,8 +71,13 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
     }
     issue.labelIds = [...new Set(issue.labelIds)];
     if (!previous || previous.status !== issue.status) {
-      if (["in_progress", "in_review", "done"].includes(issue.status)) issue.startedAt ??= now;
+      if (["in_progress", "in_review", "done"].includes(issue.status)) {
+        const blocker = Object.values(next.issueLinks).filter((link) => link.type === "blocks" && link.targetIssueId === issue.id).map((link) => next.issues[link.sourceIssueId]).find((candidate) => candidate && !candidate.deletedAt && candidate.status !== "done");
+        assert(!blocker, `${issue.identifier} is blocked by ${blocker?.identifier}. Finish the blocking issue first.`);
+        issue.startedAt ??= now;
+      }
       issue.completedAt = issue.status === "done" ? now : null;
+      if (issue.status === "done") issue.actualEndDate ??= now.slice(0, 10);
       issue.order = appendOrder(issue.status, issue.id);
     }
     issue.updatedAt = now;
@@ -79,13 +99,19 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
     if (previous.cycleId !== issue.cycleId) changes.push(issue.cycleId ? `scheduled in ${next.cycles[issue.cycleId]?.name ?? issue.cycleId}` : "removed from its cycle");
     if (previous.estimate !== issue.estimate) changes.push(issue.estimate === null ? "removed the estimate" : `estimated ${issue.estimate} points`);
     if (previous.dueDate !== issue.dueDate || previous.startDate !== issue.startDate) changes.push("updated the dates");
+    if (previous.actualEndDate !== issue.actualEndDate) changes.push("updated the actual end date");
     if (previous.labelIds.join() !== issue.labelIds.join()) changes.push("updated labels");
     issueActivity(issue, changes.length ? `${changes.join("; ")} on ${issue.identifier}` : `updated ${issue.identifier}`);
+    if (previous.assigneeId !== issue.assigneeId && issue.assigneeId) notify(issue.assigneeId, "assigned", `${next.users[actorId]?.name ?? "Someone"} assigned ${issue.identifier} to you`, issue.id);
+    if (previous.status !== "done" && issue.status === "done") notifyUnblocked(issue);
     return issue;
   };
   const deleteIssue = (id: string) => {
     const issue = liveIssue(id);
     next.issues[id] = { ...issue, deletedAt: now, updatedAt: now };
+    for (const link of Object.values(next.issueLinks)) {
+      if (link.sourceIssueId === id || link.targetIssueId === id) delete next.issueLinks[link.id];
+    }
     issueActivity(issue, `deleted ${issue.identifier}`);
   };
 
@@ -93,12 +119,13 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
     case "issue.create": {
       const id = entityId("issue", command.id);
       assert(!Object.hasOwn(next.issues, id), "An issue with this ID already exists", "conflict");
-      const input: IssueInput = { description: "", teamId: next.users[actorId].teamIds[0] ?? "engineering", projectId: null, status: "backlog", priority: "none", assigneeId: null, reporterId: actorId, cycleId: null, labelIds: [], estimate: null, startDate: null, dueDate: null, ...command.input, title: command.input.title };
+      const input: IssueInput = { description: "", teamId: next.users[actorId].teamIds[0] ?? "engineering", projectId: null, status: "backlog", priority: "none", assigneeId: null, reporterId: actorId, cycleId: null, labelIds: [], estimate: null, startDate: null, dueDate: null, actualEndDate: null, ...command.input, title: command.input.title };
       if (!command.input.teamId && command.input.projectId) input.teamId = get(next.projects, command.input.projectId, "Project").teamId;
       if (!command.input.teamId && !command.input.projectId && command.input.cycleId) input.teamId = get(next.cycles, command.input.cycleId, "Cycle").teamId;
       const issue = normalizeIssue({ ...input, id, identifier: `${next.workspace.issuePrefix}-${next.workspace.nextIssueNumber++}`, order: 0, createdAt: now, updatedAt: now, startedAt: null, completedAt: null, deletedAt: null }, command.input);
       next.issues[id] = issue;
       issueActivity(issue, `created ${issue.identifier}`);
+      if (issue.assigneeId) notify(issue.assigneeId, "assigned", `${next.users[actorId]?.name ?? "Someone"} assigned ${issue.identifier} to you`, issue.id);
       break;
     }
     case "issue.update": updateIssue(command.id, command.patch); break;
@@ -112,9 +139,53 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
       siblings.splice(index, 0, issue);
       siblings.forEach((candidate, position) => { next.issues[candidate.id] = { ...candidate, order: (position + 1) * 1024 }; });
       issueActivity(issue, previous.status === issue.status ? `reordered ${issue.identifier}` : `moved ${issue.identifier} to ${STATUSES.find((entry) => entry.id === issue.status)?.name}`);
+      if (previous.status !== "done" && issue.status === "done") notifyUnblocked(issue);
       break;
     }
     case "issue.delete": deleteIssue(command.id); break;
+    case "issue.link": {
+      const source = liveIssue(command.issueId);
+      const target = liveIssue(command.targetIssueId);
+      assert(source.id !== target.id, "An issue cannot be linked to itself");
+      assert(!Object.values(next.issueLinks).some((link) => link.type === command.linkType && link.sourceIssueId === source.id && link.targetIssueId === target.id), "This link already exists");
+      if (command.linkType === "blocks") {
+        const blockedBy = new Map<string, string[]>();
+        for (const link of Object.values(next.issueLinks)) {
+          if (link.type !== "blocks") continue;
+          const list = blockedBy.get(link.sourceIssueId) ?? [];
+          list.push(link.targetIssueId);
+          blockedBy.set(link.sourceIssueId, list);
+        }
+        const visited = new Set<string>();
+        const stack = [target.id];
+        while (stack.length) {
+          const current = stack.pop()!;
+          assert(current !== source.id, "This dependency would create a blocking cycle");
+          if (visited.has(current)) continue;
+          visited.add(current);
+          stack.push(...(blockedBy.get(current) ?? []));
+        }
+      }
+      const id = entityId("link", command.id);
+      assert(!Object.hasOwn(next.issueLinks, id), "A link with this ID already exists", "conflict");
+      next.issueLinks[id] = { id, type: command.linkType, sourceIssueId: source.id, targetIssueId: target.id, createdAt: now };
+      next.issues[source.id] = { ...source, updatedAt: now };
+      next.issues[target.id] = { ...target, updatedAt: now };
+      issueActivity(next.issues[source.id], command.linkType === "blocks" ? `marked ${source.identifier} as blocking ${target.identifier}` : `linked ${source.identifier} to ${target.identifier}`);
+      issueActivity(next.issues[target.id], command.linkType === "blocks" ? `marked ${target.identifier} as blocked by ${source.identifier}` : `linked ${target.identifier} to ${source.identifier}`);
+      break;
+    }
+    case "issue.unlink": {
+      const link = get(next.issueLinks, command.id, "Issue link");
+      const source = get(next.issues, link.sourceIssueId, "Issue");
+      const target = get(next.issues, link.targetIssueId, "Issue");
+      delete next.issueLinks[link.id];
+      next.issues[source.id] = { ...source, updatedAt: now };
+      next.issues[target.id] = { ...target, updatedAt: now };
+      issueActivity(next.issues[source.id], link.type === "blocks" ? `removed the block on ${target.identifier}` : `removed the link to ${target.identifier}`);
+      issueActivity(next.issues[target.id], link.type === "blocks" ? `removed the blocked-by link to ${source.identifier}` : `removed the link to ${source.identifier}`);
+      break;
+    }
     case "issue.restore": {
       const previous = get(next.issues, command.id, "Issue");
       assert(previous.deletedAt, "This issue is not deleted");
@@ -184,8 +255,8 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
     case "cycle.close": {
       const cycle = get(next.cycles, command.id, "Cycle");
       assert(!cycle.closedAt, "This cycle is already closed");
-      const { total, completed, points, totalPoints } = cycleProgress(next, cycle.id);
-      next.cycles[cycle.id] = { ...cycle, closedAt: now, snapshot: { total, completed, points, totalPoints } };
+      const { total, completed, points, totalPoints, weightCompleted, weightTotal } = cycleProgress(next, cycle.id);
+      next.cycles[cycle.id] = { ...cycle, closedAt: now, snapshot: { total, completed, points, totalPoints, weightCompleted, weightTotal } };
       activity(`completed ${cycle.name} with ${completed} of ${total} issues and ${points} completed points`, { cycleId: cycle.id });
       break;
     }
@@ -226,6 +297,18 @@ export function applyCommand(data: WorkspaceData, rawCommand: Command, context: 
       const view = get(next.savedViews, command.id, "Saved view");
       delete next.savedViews[view.id];
       activity(`deleted the view “${view.name}”`);
+      break;
+    }
+    case "notification.read": {
+      const notification = get(next.notifications, command.id, "Notification");
+      assert(notification.userId === actorId, "You can only mark your own notifications as read", "forbidden");
+      if (!notification.readAt) next.notifications[notification.id] = { ...notification, readAt: now };
+      break;
+    }
+    case "notifications.readAll": {
+      for (const notification of Object.values(next.notifications)) {
+        if (notification.userId === actorId && !notification.readAt) next.notifications[notification.id] = { ...notification, readAt: now };
+      }
       break;
     }
     default: {

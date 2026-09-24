@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Command, WorkspaceData } from "../../types/domain";
+import type { Command, Issue, WorkspaceData } from "../../types/domain";
 
 export type DomainErrorCode = "validation" | "not-found" | "conflict" | "persistence-unavailable" | "corrupt-snapshot" | "unsupported-version" | "unauthorized" | "forbidden";
 export class DomainError extends Error {
@@ -23,24 +23,26 @@ const status = z.enum(["backlog", "todo", "in_progress", "in_review", "done"]);
 const priority = z.enum(["none", "urgent", "high", "medium", "low"]);
 const estimate = z.number().refine((value) => [0, 1, 2, 3, 5, 8, 9].includes(value), "Estimate must be 0, 1, 2, 3, 5, 8, 9, or unestimated").nullable();
 const ids = z.array(id).max(1000);
-export const issueInputSchema = z.object({ title, description, teamId: id, projectId: id.nullable(), status, priority, assigneeId: id.nullable(), reporterId: id, cycleId: id.nullable(), labelIds: ids, estimate, startDate: date.nullable(), dueDate: date.nullable() }).strict();
+export const issueInputSchema = z.object({ title, description, teamId: id, projectId: id.nullable(), status, priority, assigneeId: id.nullable(), reporterId: id, cycleId: id.nullable(), labelIds: ids, estimate, startDate: date.nullable(), dueDate: date.nullable(), actualEndDate: date.nullable() }).strict();
 export const projectInputSchema = z.object({ name, description, teamId: id, icon: z.string().min(1).max(80), color: z.string().max(80), status: z.enum(["planned", "in_progress", "paused", "completed"]), health: z.enum(["on_track", "at_risk", "off_track"]), leadId: id, memberIds: ids, startDate: date.nullable(), targetDate: date.nullable() }).strict();
 export const cycleInputSchema = z.object({ name, goal: z.string().max(10000), teamId: id, startDate: date, endDate: date }).strict();
-export const filtersSchema = z.object({ text: z.string().max(1000), statuses: z.array(status), priorities: z.array(priority), assignees: ids, projects: ids, cycles: ids, labels: ids, due: z.enum(["all", "overdue", "week", "none"]), estimate: z.enum(["all", "none", "small", "large"]), excludeDone: z.boolean() }).strict();
+export const filtersSchema = z.object({ text: z.string().max(1000), statuses: z.array(status), priorities: z.array(priority), assignees: ids, projects: ids, cycles: ids, labels: ids, due: z.enum(["all", "overdue", "week", "none"]), estimate: z.enum(["all", "none", "small", "large"]), blocked: z.enum(["all", "blocked", "unblocked"]), excludeDone: z.boolean() }).strict();
 export const savedViewSchema = z.object({ id, name, filters: filtersSchema, sort: z.enum(["manual", "updated", "priority", "due", "title", "identifier"]), group: z.enum(["status", "priority", "assignee", "project", "none"]), layout: z.enum(["list", "board"]), ownerId: id.nullable().optional(), teamId: id.nullable().optional(), visibility: z.enum(["personal", "team", "workspace"]).optional() }).strict();
 const issueSchema = issueInputSchema.extend({ id, identifier: z.string().regex(/^[A-Z][A-Z0-9]*-\d+$/), order: z.number().finite(), createdAt: instant, updatedAt: instant, startedAt: instant.nullable(), completedAt: instant.nullable(), deletedAt: instant.nullable() });
 const projectSchema = projectInputSchema.extend({ id, createdAt: instant, updatedAt: instant, archivedAt: instant.nullable() });
-const cycleSchema = cycleInputSchema.extend({ id, closedAt: instant.nullable(), snapshot: z.object({ total: z.number().int().nonnegative(), completed: z.number().int().nonnegative(), points: z.number().nonnegative(), totalPoints: z.number().nonnegative() }).strict().nullable() });
+const cycleSchema = cycleInputSchema.extend({ id, closedAt: instant.nullable(), snapshot: z.object({ total: z.number().int().nonnegative(), completed: z.number().int().nonnegative(), points: z.number().nonnegative(), totalPoints: z.number().nonnegative(), weightCompleted: z.number().nonnegative().optional(), weightTotal: z.number().nonnegative().optional() }).strict().nullable() });
 const commentSchema = z.object({ id, issueId: id, authorId: id, body, createdAt: instant, editedAt: instant.nullable() }).strict();
 const activitySchema = z.object({ id, issueId: id.nullable(), projectId: id.nullable(), cycleId: id.nullable(), actorId: id, message: z.string().min(1).max(2000), createdAt: instant }).strict();
+const issueLinkSchema = z.object({ id, type: z.enum(["blocks", "relates_to"]), sourceIssueId: id, targetIssueId: id, createdAt: instant }).strict();
+const notificationSchema = z.object({ id, userId: id, issueId: id.nullable(), kind: z.enum(["assigned", "unblocked"]), message: z.string().min(1).max(2000), createdAt: instant, readAt: instant.nullable() }).strict();
 const userSchema = z.object({ id, name, initials: z.string().min(1).max(8), color: z.string().max(80), role: z.string().max(160), teamIds: ids }).strict();
 const teamSchema = z.object({ id, name, key: z.string().min(1).max(20), wipLimit: z.number().int().nonnegative(), visibility: z.enum(["public", "private"]), ownerIds: ids }).strict();
 export const timezoneSchema = z.string().max(100).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }, "Choose a valid time zone");
 const labelSchema = z.object({ id, name, color: z.string().max(80) }).strict();
 export const snapshotSchema = z.object({
-  schemaVersion: z.literal(2), revision: z.number().int().nonnegative(),
+  schemaVersion: z.literal(3), revision: z.number().int().nonnegative(),
   workspace: z.object({ id: z.literal("nivo-labs"), name, issuePrefix: z.string().regex(/^[A-Z][A-Z0-9]*$/), nextIssueNumber: z.number().int().positive(), seedAnchorDate: date, timezone: timezoneSchema, accessModel: z.enum(["project_legacy", "team"]) }).strict(),
-  currentUserId: id, users: z.record(id, userSchema), teams: z.record(id, teamSchema), labels: z.record(id, labelSchema), projects: z.record(id, projectSchema), issues: z.record(id, issueSchema), cycles: z.record(id, cycleSchema), comments: z.record(id, commentSchema), activities: z.record(id, activitySchema), savedViews: z.record(id, savedViewSchema), appliedMutations: z.array(id).max(512),
+  currentUserId: id, users: z.record(id, userSchema), teams: z.record(id, teamSchema), labels: z.record(id, labelSchema), projects: z.record(id, projectSchema), issues: z.record(id, issueSchema), issueLinks: z.record(id, issueLinkSchema), cycles: z.record(id, cycleSchema), comments: z.record(id, commentSchema), activities: z.record(id, activitySchema), notifications: z.record(id, notificationSchema), savedViews: z.record(id, savedViewSchema), appliedMutations: z.array(id).max(512),
 }).strict();
 
 const commandSchema = z.union([
@@ -48,7 +50,11 @@ const commandSchema = z.union([
   z.object({ type: z.literal("issue.update"), id, patch: issueInputSchema.partial() }).strict(),
   z.object({ type: z.literal("issue.move"), id, status, beforeId: id.optional() }).strict(),
   z.object({ type: z.enum(["issue.delete", "issue.restore"]), id }).strict(),
+  z.object({ type: z.literal("issue.link"), issueId: id, targetIssueId: id, linkType: z.enum(["blocks", "relates_to"]), id: id.optional() }).strict(),
+  z.object({ type: z.literal("issue.unlink"), id }).strict(),
   z.object({ type: z.literal("issues.bulk"), ids: ids.min(1), patch: issueInputSchema.partial().optional(), delete: z.boolean().optional(), addLabel: id.optional(), removeLabel: id.optional() }).strict(),
+  z.object({ type: z.literal("notification.read"), id }).strict(),
+  z.object({ type: z.literal("notifications.readAll") }).strict(),
   z.object({ type: z.literal("project.create"), input: projectInputSchema, id: id.optional() }).strict(),
   z.object({ type: z.literal("project.update"), id, patch: projectInputSchema.partial() }).strict(),
   z.object({ type: z.literal("project.archive"), id, archived: z.boolean() }).strict(),
@@ -71,7 +77,7 @@ export function validateCommand(command: Command): Command {
 export function validateReferences(data: WorkspaceData) {
   const ref = (map: Record<string, unknown>, value: string | null, label: string) => assert(value === null || Object.hasOwn(map, value), `${label} does not exist: ${value}`);
   ref(data.users, data.currentUserId, "Current user");
-  const maps = [data.users, data.teams, data.labels, data.projects, data.issues, data.cycles, data.comments, data.activities, data.savedViews];
+  const maps = [data.users, data.teams, data.labels, data.projects, data.issues, data.issueLinks, data.cycles, data.comments, data.activities, data.notifications, data.savedViews];
   for (const map of maps) for (const [key, entity] of Object.entries(map)) assert(key === entity.id, "Entity map key does not match its ID");
   for (const user of Object.values(data.users)) for (const teamId of user.teamIds) ref(data.teams, teamId, "User team");
   for (const team of Object.values(data.teams)) for (const ownerId of team.ownerIds) {
@@ -109,6 +115,7 @@ export function validateReferences(data: WorkspaceData) {
     assert(!issue.projectId || data.projects[issue.projectId].teamId === issue.teamId, "Issue and project must belong to the same team");
     assert(!issue.cycleId || data.cycles[issue.cycleId].teamId === issue.teamId, "Issue and cycle must belong to the same team");
     assert(!issue.startDate || !issue.dueDate || issue.startDate <= issue.dueDate, "Issue due date cannot be before its start date");
+    assert(!issue.actualEndDate || issue.actualEndDate >= issue.createdAt.slice(0, 10), "Issue actual finish cannot precede its creation");
     assert(issue.createdAt <= issue.updatedAt, "Issue update cannot precede creation");
     assert(!issue.startedAt || issue.startedAt >= issue.createdAt, "Issue start cannot precede creation");
     assert((issue.status === "done") === Boolean(issue.completedAt), "Issue completion timestamp must match its status");
@@ -129,6 +136,38 @@ export function validateReferences(data: WorkspaceData) {
     ref(data.projects, activity.projectId, "Activity project");
     ref(data.cycles, activity.cycleId, "Activity cycle");
   }
+  const linkPairs = new Set<string>();
+  for (const link of Object.values(data.issueLinks)) {
+    ref(data.issues, link.sourceIssueId, "Link source issue");
+    ref(data.issues, link.targetIssueId, "Link target issue");
+    assert(link.sourceIssueId !== link.targetIssueId, "An issue cannot be linked to itself");
+    const pair = `${link.type}:${link.sourceIssueId}:${link.targetIssueId}`;
+    assert(!linkPairs.has(pair), "Duplicate issue link");
+    linkPairs.add(pair);
+  }
+  const blockersOf = new Map<string, string[]>();
+  for (const link of Object.values(data.issueLinks)) {
+    if (link.type !== "blocks") continue;
+    const list = blockersOf.get(link.targetIssueId) ?? [];
+    list.push(link.sourceIssueId);
+    blockersOf.set(link.targetIssueId, list);
+  }
+  for (const start of blockersOf.keys()) {
+    const visited = new Set<string>([start]);
+    const stack = [...(blockersOf.get(start) ?? [])];
+    while (stack.length) {
+      const current = stack.pop()!;
+      assert(current !== start, "Blocking dependencies cannot form a cycle");
+      if (visited.has(current)) continue;
+      visited.add(current);
+      stack.push(...(blockersOf.get(current) ?? []));
+    }
+  }
+  for (const notification of Object.values(data.notifications)) {
+    ref(data.users, notification.userId, "Notification user");
+    ref(data.issues, notification.issueId, "Notification issue");
+    assert(!notification.readAt || notification.readAt >= notification.createdAt, "Notification read cannot precede its creation");
+  }
   for (const view of Object.values(data.savedViews)) {
     for (const value of view.filters.assignees) if (!["none", "unassigned"].includes(value)) ref(data.users, value, "View assignee");
     for (const value of view.filters.projects) if (value !== "none") ref(data.projects, value, "View project");
@@ -137,9 +176,27 @@ export function validateReferences(data: WorkspaceData) {
   }
 }
 
+function migrateSnapshot(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || !("schemaVersion" in raw)) return raw;
+  const candidate = raw as Omit<WorkspaceData, "schemaVersion"> & { schemaVersion: number };
+  const savedViews = Object.fromEntries(Object.entries(candidate.savedViews ?? {}).map(([viewId, view]) => {
+    const blocked = (view.filters as { blocked?: unknown })?.blocked;
+    return [viewId, { ...view, filters: { ...view.filters, blocked: (blocked === "blocked" || blocked === "unblocked" ? blocked : "all") as WorkspaceData["savedViews"][string]["filters"]["blocked"] } }];
+  }));
+  const issues = Object.fromEntries(Object.entries(candidate.issues ?? {}).map(([issueId, issue]) => {
+    const { weight: _weight, actualStartDate: _actualStartDate, ...rest } = issue as Issue & { weight?: unknown; actualStartDate?: unknown };
+    return [issueId, { ...rest, actualEndDate: rest.actualEndDate ?? null }];
+  }));
+  if (candidate.schemaVersion === 2) {
+    return { ...candidate, schemaVersion: 3, issues, issueLinks: {}, notifications: {}, savedViews } satisfies WorkspaceData;
+  }
+  return { ...candidate, issues, savedViews };
+}
+
 export function validateSnapshot(raw: unknown): WorkspaceData {
-  if (raw && typeof raw === "object" && "schemaVersion" in raw && raw.schemaVersion !== 2) throw new DomainError("unsupported-version", "This workspace uses an unsupported schema version. Your saved data has not been changed.");
-  const result = snapshotSchema.safeParse(raw);
+  const migrated = migrateSnapshot(raw);
+  if (migrated && typeof migrated === "object" && "schemaVersion" in migrated && migrated.schemaVersion !== 3) throw new DomainError("unsupported-version", "This workspace uses an unsupported schema version. Your saved data has not been changed.");
+  const result = snapshotSchema.safeParse(migrated);
   if (!result.success) throw new DomainError("corrupt-snapshot", `The saved workspace is invalid: ${result.error.issues.slice(0, 3).map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   try { validateReferences(result.data); } catch (error) { throw new DomainError("corrupt-snapshot", error instanceof Error ? error.message : "The saved workspace contains invalid references."); }
   return result.data;
