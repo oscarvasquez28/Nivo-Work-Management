@@ -1,0 +1,2 @@
+ALTER TABLE issues DROP COLUMN IF EXISTS weight;
+ALTER TABLE issues DROP COLUMN IF EXISTS actual_start_date;
