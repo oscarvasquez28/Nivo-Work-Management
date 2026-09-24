@@ -1,4 +1,5 @@
 import { EMPTY_FILTERS, type Issue, type Project, type Status, type User, type WorkspaceData } from "../../types/domain";
+import { issueDuration } from "../domain/selectors";
 
 const titles = {
   "nivo-2": [
@@ -50,7 +51,7 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
   ];
   const projects = Object.fromEntries(projectRows.map(([id, name, teamId, icon, color, leadId, memberIds, description], index): [string, Project] => [id, { id, name, teamId, icon, color, leadId, memberIds: [leadId, ...memberIds], description, status: "in_progress", health: index === 1 ? "at_risk" : "on_track", startDate: day(-65 + index * 7), targetDate: day(21 + index * 14), createdAt: instant(-90), updatedAt: instant(-index), archivedAt: null }]));
   const data: WorkspaceData = {
-    schemaVersion: 2, revision: 0,
+    schemaVersion: 3, revision: 0,
     workspace: { id: "nivo-labs", name: "Nivo Labs", issuePrefix: "NIV", nextIssueNumber: 151, seedAnchorDate: date, timezone: "UTC", accessModel: "team" }, currentUserId: "user-oscar", users,
     teams: {
       engineering: { id: "engineering", name: "Engineering", key: "ENG", wipLimit: 12, visibility: "public", ownerIds: ["user-sarah"] },
@@ -67,7 +68,7 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
       "cycle-mobile-9": { id: "cycle-mobile-9", name: "Mobile cycle 9", goal: "Address usability feedback and interaction edge cases.", teamId: "product", startDate: day(7), endDate: day(20), closedAt: null, snapshot: null },
       "cycle-design-12": { id: "cycle-design-12", name: "Design cycle 12", goal: "Ship the foundational components and interaction guidelines.", teamId: "design", startDate: day(-7), endDate: day(6), closedAt: null, snapshot: null },
     },
-    issues: {}, comments: {}, activities: {}, savedViews: {}, appliedMutations: [],
+    issues: {}, issueLinks: {}, comments: {}, activities: {}, notifications: {}, savedViews: {}, appliedMutations: [],
   };
   const statuses: Status[] = ["done", "done", "in_progress", "todo", "in_review", "backlog", "in_progress", "todo", "done", "backlog"];
   const userIds = Object.keys(users);
@@ -95,11 +96,13 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
       estimate: ([null, 1, 2, 3, 5, 8, 0, 2, 3] as const)[number % 9],
       startDate: number % 3 === 0 ? day(Math.max(createdOffset, -14)) : null,
       dueDate: number % 4 === 0 ? null : day((number % 22) - 6),
+      actualEndDate: null,
       order: number * 1024, createdAt: instant(createdOffset, 9), updatedAt: completedAt ?? instant(-(number % 6), 10),
       startedAt: ["in_progress", "in_review", "done"].includes(status) ? instant(Math.max(createdOffset, cycleId === "cycle-23" ? -16 : -12), 10) : null,
       completedAt, deletedAt: null,
     };
     if (issue.startDate && issue.dueDate && issue.startDate > issue.dueDate) issue.startDate = issue.dueDate;
+    if (issue.completedAt) issue.actualEndDate = issue.completedAt.slice(0, 10);
     data.issues[issue.id] = issue;
     const activityId = `activity-seed-${number}`;
     data.activities[activityId] = { id: activityId, issueId: issue.id, projectId: issue.projectId, cycleId: issue.cycleId, actorId: issue.assigneeId ?? issue.reporterId, message: status === "done" ? `completed ${issue.identifier}` : status === "in_review" ? `moved ${issue.identifier} to In Review` : status === "in_progress" ? `started work on ${issue.identifier}` : `created ${issue.identifier}`, createdAt: issue.updatedAt };
@@ -122,6 +125,7 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
     issue.assigneeId = index === 0 ? "user-oscar" : ["user-sarah", "user-marcus", "user-emma", "user-alex"][index - 1];
     issue.completedAt = null;
     issue.startedAt = ["in_progress", "in_review"].includes(issue.status) ? instant(-3, 10) : null;
+    issue.actualEndDate = null;
     issue.description = `## Why this matters\n\n${title} is part of making Nivo 2.0 a calmer, more focused place to work.\n\n## Scope\n\n${index === 0 ? "One fast entry point for finding issues, projects, cycles, and teammates. Support Cmd/Ctrl + K, clear grouped results, and accessible keyboard navigation." : "Bring the interaction in line with the new workspace patterns. Keep the first iteration focused, accessible, and easy to understand."}\n\n## Acceptance criteria\n\n- [x] Align on the interaction with design\n- [ ] Complete the primary implementation\n- [ ] Verify loading, empty, and error states\n- [ ] Add regression coverage`;
     const activity = data.activities[`activity-seed-${142 + index}`];
     activity.projectId = issue.projectId;
@@ -130,7 +134,16 @@ export function createSeed(anchor = "2026-09-09"): WorkspaceData {
     activity.message = index === 0 ? `started work on ${issue.identifier}` : `updated ${issue.identifier}`;
   });
   const previous = Object.values(data.issues).filter((issue) => issue.cycleId === "cycle-23");
-  data.cycles["cycle-23"].snapshot = { total: previous.length, completed: previous.filter((issue) => issue.status === "done").length, points: previous.reduce((sum, issue) => sum + (issue.status === "done" ? issue.estimate ?? 0 : 0), 0), totalPoints: previous.reduce((sum, issue) => sum + (issue.estimate ?? 0), 0) };
+  data.cycles["cycle-23"].snapshot = { total: previous.length, completed: previous.filter((issue) => issue.status === "done").length, points: previous.reduce((sum, issue) => sum + (issue.status === "done" ? issue.estimate ?? 0 : 0), 0), totalPoints: previous.reduce((sum, issue) => sum + (issue.estimate ?? 0), 0), weightCompleted: previous.reduce((sum, issue) => sum + (issue.status === "done" ? issueDuration(issue) : 0), 0), weightTotal: previous.reduce((sum, issue) => sum + issueDuration(issue), 0) };
+  const linkSeed: [string, string][] = [["issue-142", "issue-143"], ["issue-143", "issue-146"], ["issue-142", "issue-25"], ["issue-144", "issue-145"]];
+  linkSeed.forEach(([sourceIssueId, targetIssueId], index) => {
+    const id = `link-${index + 1}`;
+    data.issueLinks[id] = { id, type: "blocks", sourceIssueId, targetIssueId, createdAt: instant(-3 - index, 13) };
+  });
+  const relatedId = "link-related-1";
+  data.issueLinks[relatedId] = { id: relatedId, type: "relates_to", sourceIssueId: "issue-141", targetIssueId: "issue-143", createdAt: instant(-2, 13) };
+  data.notifications["notification-seed-1"] = { id: "notification-seed-1", userId: "user-oscar", issueId: "issue-142", kind: "assigned", message: "assigned NIV-142 to you", createdAt: instant(-3, 14), readAt: null };
+  data.notifications["notification-seed-2"] = { id: "notification-seed-2", userId: "user-oscar", issueId: "issue-143", kind: "unblocked", message: "NIV-143 is no longer blocked", createdAt: instant(-4, 14), readAt: instant(-3, 15) };
   data.savedViews["view-active"] = { id: "view-active", name: "Active work", filters: { ...EMPTY_FILTERS, statuses: ["in_progress", "in_review"] }, sort: "priority", group: "status", layout: "list" };
   data.savedViews["view-high-priority"] = { id: "view-high-priority", name: "High priority", filters: { ...EMPTY_FILTERS, priorities: ["urgent", "high"], excludeDone: true }, sort: "priority", group: "project", layout: "list" };
   return data;

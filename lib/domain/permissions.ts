@@ -40,6 +40,8 @@ export function scopeSnapshot(data: WorkspaceData, actor: Actor): WorkspaceData 
   }));
   return {
     ...data, currentUserId: actor.id, users, teams, projects, issues, cycles, savedViews,
+    issueLinks: Object.fromEntries(Object.entries(data.issueLinks).filter(([, link]) => !!issues[link.sourceIssueId] && !!issues[link.targetIssueId])),
+    notifications: Object.fromEntries(Object.entries(data.notifications).filter(([, n]) => n.userId === actor.id && (!n.issueId || !!issues[n.issueId]))),
     comments: Object.fromEntries(Object.entries(data.comments).filter(([, comment]) => !!issues[comment.issueId])),
     activities: Object.fromEntries(Object.entries(data.activities).filter(([, a]) =>
       (a.issueId || a.projectId || a.cycleId) && (!a.issueId || !!issues[a.issueId]) && (!a.projectId || !!projects[a.projectId]) && (!a.cycleId || !!cycles[a.cycleId]))),
@@ -71,7 +73,17 @@ export function assertCommandAccess(data: WorkspaceData, actor: Actor, command: 
       if (command.beforeId) { issue(command.beforeId); requireAccess(data.issues[command.id].teamId === data.issues[command.beforeId].teamId); }
       break;
     case "issue.delete": case "issue.restore": issue(command.id); break;
+    case "issue.link": issue(command.issueId); issue(command.targetIssueId); break;
+    case "issue.unlink": {
+      const link = data.issueLinks[command.id];
+      requireAccess(!!link);
+      issue(link.sourceIssueId);
+      issue(link.targetIssueId);
+      break;
+    }
     case "issues.bulk": for (const id of command.ids) { issue(id); patch(command.patch ?? {}, id); } break;
+    case "notification.read": requireAccess(data.notifications[command.id]?.userId === actor.id); break;
+    case "notifications.readAll": break;
     case "project.create":
       team(command.input.teamId);
       for (const id of [...command.input.memberIds, command.input.leadId]) requireAccess(legacy ? !!data.users[id] : canAccessTeam(data, id, command.input.teamId));

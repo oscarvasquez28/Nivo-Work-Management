@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeft, Check, Copy, ExternalLink, FileText, Pencil, RotateCcw, Trash2, X } from "lucide-react";
-import { Badge, Button, EmptyState, Input, StatusIcon, cn } from "@/components/ui";
+import { Badge, Button, EmptyState, Input, Progress, StatusIcon, cn } from "@/components/ui";
+import { useI18n } from "@/lib/i18n";
+import { dateLabel, isIssueBlocked, issueSchedule } from "@/lib/domain/selectors";
 import { useWorkspace } from "@/stores/workspace";
 import type { Issue, IssueInput, WorkspaceData } from "@/types/domain";
+import { IssueDependencies } from "./issue-dependencies";
 import { editorClass, errorMessage, IssueProperties, MutationError } from "./issue-properties";
 import { formatTimestamp, IssueActivity, IssueComments } from "./issue-comments";
 import { Markdown } from "./markdown";
@@ -52,7 +55,11 @@ function IssueEditor({ issue, data, panel, onClose }: { issue: Issue; data: Work
       setTimeout(() => setCopied(false), 2500);
     } catch { setError("The link could not be copied. You can copy the issue URL from your browser instead."); }
   }
+  const { t } = useI18n();
   const comments = Object.values(data.comments).filter((comment) => comment.issueId === issue.id).length;
+  const blocked = isIssueBlocked(data, issue);
+  const today = new Date().toISOString().slice(0, 10);
+  const schedule = issueSchedule(issue, today);
   return <section className={cn("mx-auto flex min-h-full w-full min-w-0 flex-col", !panel && "max-w-6xl")}>
     <header className="flex min-h-14 items-center justify-between gap-3 border-b border-[var(--border)] px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-2 text-xs text-[var(--muted)]">{!panel && <Link href="/issues" aria-label="Back to issues" className="mr-1 rounded p-1 hover:bg-[var(--raised)]"><ArrowLeft size={15}/></Link>}<span className="truncate">{data.teams[issue.teamId]?.name}</span><span>/</span><span className="shrink-0 font-mono text-[var(--text)]">{issue.identifier}</span></div>
@@ -61,7 +68,7 @@ function IssueEditor({ issue, data, panel, onClose }: { issue: Issue; data: Work
     <div className="sr-only" role="status">{copied ? "Issue link copied" : ""}</div>
     {issue.deletedAt ? <div className="space-y-4 p-8"><EmptyState icon={<Trash2 size={28}/>} title="This issue was deleted" description="Its history is still here. Restore the issue to return it to your workspace." action={<Button onClick={restore} disabled={!!pending}><RotateCcw size={15}/>Restore issue</Button>}/><MutationError message={error}/></div> : <div className={cn("grid min-w-0 flex-1", !panel && "lg:grid-cols-[minmax(0,1fr)_290px]")}>
       <div className="min-w-0 space-y-7 p-5 sm:p-8">
-        <div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><StatusIcon status={issue.status}/><span className="font-mono text-xs text-[var(--muted)]">{issue.identifier}</span>{issue.projectId && <Link href={`/projects/${issue.projectId}`}><Badge color={data.projects[issue.projectId]?.color}>{data.projects[issue.projectId]?.name}</Badge></Link>}</div>
+        <div className="space-y-3"><div className="flex flex-wrap items-center gap-2"><StatusIcon status={issue.status}/><span className="font-mono text-xs text-[var(--muted)]">{issue.identifier}</span>{blocked && <Badge color="#e56565">{t("issue.blocked")}</Badge>}{issue.projectId && <Link href={`/projects/${issue.projectId}`}><Badge color={data.projects[issue.projectId]?.color}>{data.projects[issue.projectId]?.name}</Badge></Link>}</div>
           {editingTitle ? <form onSubmit={async (event) => { event.preventDefault(); if (await update({ title: title.trim() })) setEditingTitle(false); }} className="space-y-2"><Input aria-label="Issue title" autoFocus value={title} maxLength={240} required onChange={(event) => setTitle(event.target.value)} className="!text-xl !font-semibold"/><div className="flex gap-2"><Button size="sm" variant="primary" type="submit" disabled={!title.trim() || !!pending}>Save title</Button><Button size="sm" variant="ghost" type="button" onClick={() => setEditingTitle(false)}>Cancel</Button></div></form> : <div className="group flex items-start gap-2"><h1 className="min-w-0 flex-1 break-words text-2xl font-semibold leading-snug tracking-tight">{issue.title}</h1><Button size="sm" variant="ghost" aria-label="Edit issue title" onClick={() => { setTitle(issue.title); setEditingTitle(true); }}><Pencil size={14}/></Button></div>}
         </div>
         <MutationError message={error} onDismiss={() => setError(null)}/>
@@ -69,6 +76,22 @@ function IssueEditor({ issue, data, panel, onClose }: { issue: Issue; data: Work
         <section aria-label="Issue description"><div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-medium text-[var(--muted)]">Description</h2>{!editingDescription && <Button size="sm" variant="ghost" aria-label="Edit description" onClick={() => { setDescription(issue.description); setPreview(false); setEditingDescription(true); }}><Pencil size={13}/>Edit</Button>}</div>
           {editingDescription ? <div className="space-y-3"><div className="flex gap-1"><Button size="sm" variant={preview ? "ghost" : "secondary"} onClick={() => setPreview(false)}>Write</Button><Button size="sm" variant={preview ? "secondary" : "ghost"} onClick={() => setPreview(true)}>Preview</Button></div>{preview ? <div className="min-h-36 rounded-lg border border-[var(--border)] p-3"><Markdown>{description || "Nothing to preview yet."}</Markdown></div> : <textarea autoFocus aria-label="Issue description" className={editorClass} rows={9} maxLength={50000} value={description} onChange={(event) => setDescription(event.target.value)}/>}<div className="flex items-center gap-2"><Button size="sm" variant="primary" disabled={!!pending} onClick={async () => { if (await update({ description })) setEditingDescription(false); }}>Save description</Button><Button size="sm" variant="ghost" onClick={() => setEditingDescription(false)}>Cancel</Button><span className="ml-auto hidden text-[10px] text-[var(--muted)] sm:block">Markdown supported</span></div></div> : issue.description ? <Markdown>{issue.description}</Markdown> : <button className="w-full rounded-lg border border-dashed border-[var(--border)] p-5 text-left text-sm text-[var(--muted)] hover:bg-[var(--surface)]" onClick={() => { setDescription(""); setEditingDescription(true); }}>Add context or a description…</button>}
         </section>
+        <section aria-label={t("schedule.title")} className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+          <h2 className="text-xs font-medium text-[var(--muted)]">{t("schedule.title")}</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between text-xs"><span className="font-medium">{t("schedule.planned")}</span><span className="text-[var(--muted)]">{dateLabel(issue.startDate)} → {dateLabel(issue.dueDate)}</span></div>
+              <Progress value={schedule.plannedPercent ?? 0}/>
+              <p className="text-[11px] text-[var(--muted)]">{schedule.plannedPercent === null ? t("schedule.noPlan") : t("schedule.plannedProgress", { percent: schedule.plannedPercent })}</p>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between text-xs"><span className="font-medium">{t("schedule.actual")}</span><span className="text-[var(--muted)]">{dateLabel(issue.startedAt)} → {issue.actualEndDate ? dateLabel(issue.actualEndDate) : t("schedule.ongoing")}</span></div>
+              <Progress value={schedule.actualPercent}/>
+              <p className="text-[11px] text-[var(--muted)]">{t("schedule.actualProgress", { percent: schedule.actualPercent })}</p>
+            </div>
+          </div>
+        </section>
+        <IssueDependencies issue={issue} data={data} disabled={!!pending}/>
         {panel && <section className="border-y border-[var(--border)] py-5"><IssueProperties data={data} value={issue} disabled={!!pending} onChange={(patch) => { void update(patch); }} compact/></section>}
         <section className="border-t border-[var(--border)] pt-5"><div className="mb-5 flex gap-5" role="tablist" aria-label="Issue conversation"><button role="tab" aria-selected={tab === "comments"} aria-controls={`conversation-${issue.id}`} className={cn("border-b-2 pb-2 text-xs font-medium", tab === "comments" ? "border-[var(--accent)] text-[var(--text)]" : "border-transparent text-[var(--muted)]")} onClick={() => setTab("comments")}>Comments <span className="ml-1 text-[var(--muted)]">{comments}</span></button><button role="tab" aria-selected={tab === "activity"} aria-controls={`conversation-${issue.id}`} className={cn("border-b-2 pb-2 text-xs font-medium", tab === "activity" ? "border-[var(--accent)] text-[var(--text)]" : "border-transparent text-[var(--muted)]")} onClick={() => setTab("activity")}>Activity</button></div><div id={`conversation-${issue.id}`} role="tabpanel">{tab === "comments" ? <IssueComments issueId={issue.id} data={data}/> : <IssueActivity issueId={issue.id} data={data}/>}</div></section>
         <p className="text-[10px] text-[var(--muted)]">Created {formatTimestamp(issue.createdAt)} · Updated {formatTimestamp(issue.updatedAt)}</p>

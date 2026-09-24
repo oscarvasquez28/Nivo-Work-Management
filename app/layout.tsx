@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { I18nProvider } from "@/lib/i18n";
 import { WorkspaceProvider } from "@/stores/workspace";
 import { UIProvider } from "@/components/providers/ui-provider";
 import "./globals.css";
@@ -10,5 +11,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning><body><a href="#main-content" className="skip-link">Skip to content</a><Suspense fallback={<div className="boot-screen">Loading your workspace…</div>}><WorkspaceProvider><UIProvider>{children}</UIProvider></WorkspaceProvider></Suspense></body></html>;
+  return <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning><body><a href="#main-content" className="skip-link">Skip to content</a><Suspense fallback={<div className="boot-screen">Loading your workspace…</div>}><I18nProvider><WorkspaceProvider><UIProvider>{children}</UIProvider></WorkspaceProvider></I18nProvider></Suspense></body></html>;
 }
